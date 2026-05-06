@@ -23,9 +23,9 @@ async def analytics_page(
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "analytics.html",
         {
-            "request": request,
             "summary": summary,
             "logs": logs,
             "usage_json": json.dumps(usage),

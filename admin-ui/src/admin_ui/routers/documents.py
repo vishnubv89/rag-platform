@@ -15,9 +15,9 @@ async def list_documents(request: Request, org_id: int | None = None, page: int 
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "documents.html",
         {
-            "request": request,
             "docs": docs,
             "orgs": orgs,
             "active_org_id": org_id,
@@ -36,8 +36,9 @@ async def document_detail(request: Request, doc_id: int):
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "document_detail.html",
-        {"request": request, "doc": doc, "active_page": "documents"},
+        {"doc": doc, "active_page": "documents"},
     )
 
 

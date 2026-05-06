@@ -20,9 +20,9 @@ async def settings_page(request: Request, org_id: int | None = None):
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "settings.html",
         {
-            "request": request,
             "config": cfg.get("config", {}),
             "config_keys": CONFIG_KEYS,
             "orgs": orgs,

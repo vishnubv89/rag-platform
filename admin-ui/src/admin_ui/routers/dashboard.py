@@ -16,9 +16,9 @@ async def dashboard(request: Request, org_id: int | None = None):
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "summary": summary,
             "recent_docs": docs.get("items", []),
             "recent_logs": logs.get("items", []),

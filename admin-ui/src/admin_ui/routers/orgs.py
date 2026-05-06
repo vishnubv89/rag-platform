@@ -14,8 +14,9 @@ async def list_orgs_page(request: Request):
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "orgs.html",
-        {"request": request, "orgs": orgs, "active_page": "orgs"},
+        {"orgs": orgs, "active_page": "orgs"},
     )
 
 
@@ -35,9 +36,9 @@ async def org_detail(request: Request, org_id: int, new_key: str | None = None):
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "org_detail.html",
         {
-            "request": request,
             "org": org,
             "keys": keys,
             "new_key": new_key,
