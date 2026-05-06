@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
 
+    # NVIDIA / any OpenAI-compatible API (used when llm_provider="nvidia")
+    # Setting nvidia_base_url to another endpoint makes this work for OpenAI,
+    # Groq, Together AI, Ollama, etc. — any OpenAI-compatible provider.
+    nvidia_api_key: str = ""
+    nvidia_model: str = "meta/llama-3.1-405b-instruct"
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+
     # Retrieval
     retrieval_top_k: int = 8
     grader_max_loops: int = 3

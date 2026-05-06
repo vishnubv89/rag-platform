@@ -34,8 +34,9 @@
           <select class="form-select" name="llm_provider" id="llmProvider" onchange="toggleProvider()">
             <option value="gemini"    {% if config.get('llm_provider','gemini') == 'gemini'    %}selected{% endif %}>Gemini (Google)</option>
             <option value="anthropic" {% if config.get('llm_provider','gemini') == 'anthropic' %}selected{% endif %}>Anthropic (Claude)</option>
+            <option value="nvidia"    {% if config.get('llm_provider','gemini') == 'nvidia'    %}selected{% endif %}>NVIDIA NIM / OpenAI-compatible</option>
           </select>
-          <div class="form-text">Applies to all LLM calls — routing, grading, generation.</div>
+          <div class="form-text">Applies to all LLM calls — routing, grading, generation. Embeddings always use Gemini.</div>
         </div>
 
         <!-- Gemini fields -->
@@ -58,12 +59,34 @@
                  placeholder="{% if config.get('anthropic_api_key') %}sk-ant-••••••••{% else %}sk-ant-…{% endif %}"
                  autocomplete="new-password">
           <div class="form-text">
-            {% if config.get('anthropic_api_key') %}
-              Key is set. Leave blank to keep existing.
-            {% else %}
-              Not set. Enter your key from <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.
-            {% endif %}
+            {% if config.get('anthropic_api_key') %}Key is set. Leave blank to keep existing.
+            {% else %}Not set. Get your key from <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.{% endif %}
           </div>
+        </div>
+
+        <!-- NVIDIA / OpenAI-compatible fields -->
+        <div class="col-md-4" id="nvidiaModelField" style="display:none">
+          <label class="form-label fw-semibold">Model</label>
+          <input class="form-control" name="nvidia_model" value="{{ config.get('nvidia_model','meta/llama-3.1-405b-instruct') }}">
+          <div class="form-text">e.g. meta/llama-3.1-405b-instruct, nvidia/llama-3.1-nemotron-70b-instruct</div>
+        </div>
+
+        <div class="col-md-4" id="nvidiaKeyField" style="display:none">
+          <label class="form-label fw-semibold">API Key</label>
+          <input class="form-control font-monospace" type="password" name="nvidia_api_key"
+                 placeholder="{% if config.get('nvidia_api_key') %}nvapi-••••••••{% else %}nvapi-…{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text">
+            {% if config.get('nvidia_api_key') %}Key is set. Leave blank to keep existing.
+            {% else %}Not set. Get your key from <a href="https://build.nvidia.com" target="_blank">build.nvidia.com</a>.{% endif %}
+          </div>
+        </div>
+
+        <div class="col-md-8" id="nvidiaBaseUrlField" style="display:none">
+          <label class="form-label fw-semibold">API Base URL</label>
+          <input class="form-control font-monospace" name="nvidia_base_url"
+                 value="{{ config.get('nvidia_base_url','https://integrate.api.nvidia.com/v1') }}">
+          <div class="form-text">Change to point at OpenAI, Groq, Together AI, Ollama, or any OpenAI-compatible endpoint.</div>
         </div>
 
       </div>
@@ -123,11 +146,13 @@
 <script>
 function toggleProvider() {
   const p = document.getElementById('llmProvider').value;
-  document.getElementById('geminiFields').style.display       = p === 'gemini'    ? '' : 'none';
-  document.getElementById('anthropicModelField').style.display = p === 'anthropic' ? '' : 'none';
-  document.getElementById('anthropicKeyField').style.display   = p === 'anthropic' ? '' : 'none';
+  document.getElementById('geminiFields').style.display        = p === 'gemini'    ? '' : 'none';
+  document.getElementById('anthropicModelField').style.display  = p === 'anthropic' ? '' : 'none';
+  document.getElementById('anthropicKeyField').style.display    = p === 'anthropic' ? '' : 'none';
+  document.getElementById('nvidiaModelField').style.display     = p === 'nvidia'    ? '' : 'none';
+  document.getElementById('nvidiaKeyField').style.display       = p === 'nvidia'    ? '' : 'none';
+  document.getElementById('nvidiaBaseUrlField').style.display   = p === 'nvidia'    ? '' : 'none';
 }
-// Run on load to reflect saved state
 toggleProvider();
 </script>
 {% endblock %}

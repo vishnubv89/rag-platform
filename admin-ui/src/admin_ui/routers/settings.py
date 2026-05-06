@@ -7,6 +7,7 @@ router = APIRouter()
 CONFIG_KEYS = [
     "llm_provider", "llm_model",
     "anthropic_model", "anthropic_api_key",
+    "nvidia_model", "nvidia_api_key", "nvidia_base_url",
     "embedding_model", "embedding_dim",
     "retrieval_top_k", "grader_max_loops",
     "chunk_size", "chunk_overlap",
@@ -43,6 +44,9 @@ async def save_settings(
     llm_model: str = Form(""),
     anthropic_model: str = Form(""),
     anthropic_api_key: str = Form(""),
+    nvidia_model: str = Form(""),
+    nvidia_api_key: str = Form(""),
+    nvidia_base_url: str = Form(""),
     embedding_model: str = Form(""),
     embedding_dim: str = Form(""),
     retrieval_top_k: str = Form(""),
@@ -54,6 +58,8 @@ async def save_settings(
         "llm_provider": llm_provider,
         "llm_model": llm_model,
         "anthropic_model": anthropic_model,
+        "nvidia_model": nvidia_model,
+        "nvidia_base_url": nvidia_base_url,
         "embedding_model": embedding_model,
         "embedding_dim": embedding_dim,
         "retrieval_top_k": retrieval_top_k,
@@ -61,9 +67,11 @@ async def save_settings(
         "chunk_size": chunk_size,
         "chunk_overlap": chunk_overlap,
     }
-    # Only update anthropic_api_key if a new value was submitted
+    # Only update API keys if a new value was submitted (blank = keep existing)
     if anthropic_api_key:
         new_cfg["anthropic_api_key"] = anthropic_api_key
+    if nvidia_api_key:
+        new_cfg["nvidia_api_key"] = nvidia_api_key
 
     await client.update_config(
         org_id=org_id, cfg={k: v for k, v in new_cfg.items() if v}
