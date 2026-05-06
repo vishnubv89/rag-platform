@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %} — Connectors{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="mb-0 fw-bold">Connectors</h4>
+    <p class="text-muted small mb-0">Pull knowledge from external systems on a schedule</p>
+  </div>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addConnectorModal">
+    <i class="bi bi-plus-lg me-1"></i>Add Connector
+  </button>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if connectors %}
+<div class="row g-3 mb-4">
+  {% for c in connectors %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card stat-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <span class="badge bg-secondary text-uppercase" style="font-size:.65rem;letter-spacing:.06em">{{ c.connector_type }}</span>
+            {% if c.is_active %}
+            <span class="badge bg-success ms-1" style="font-size:.65rem">active</span>
+            {% else %}
+            <span class="badge bg-secondary ms-1" style="font-size:.65rem">paused</span>
+            {% endif %}
+          </div>
+          <span class="badge
+            {% if c.last_sync_status == 'success' %}bg-success
+            {% elif c.last_sync_status == 'error' %}bg-danger
+            {% elif c.last_sync_status == 'running' %}bg-warning text-dark
+            {% else %}bg-light text-dark{% endif %}"
+            style="font-size:.65rem">{{ c.last_sync_status }}</span>
+        </div>
+        <h6 class="fw-semibold mb-1">{{ c.name }}</h6>
+        <p class="text-muted small mb-3">
+          Syncs every {{ c.sync_interval_minutes }} min
+          {% if c.last_synced_at %}· Last: {{ c.last_synced_at[:16] }}{% endif %}
+        </p>
+        <div class="d-flex gap-2">
+          <a href="/connectors/{{ c.id }}" class="btn btn-sm btn-outline-secondary">View</a>
+          <form action="/connectors/{{ c.id }}/sync" method="post">
+            <button class="btn btn-sm btn-outline-primary" {% if not c.is_active %}disabled{% endif %}>
+              <i class="bi bi-arrow-repeat"></i> Sync now
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card stat-card">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-plug" style="font-size:2.5rem;color:#dee2e6"></i>
+    <p class="text-muted mt-3 mb-1">No connectors configured yet.</p>
+    <p class="text-muted small">Add a connector to start pulling knowledge from external systems.</p>
+    <button class="btn btn-primary btn-sm mt-2" data-bs-toggle="modal" data-bs-target="#addConnectorModal">
+      Add first connector
+    </button>
+  </div>
+</div>
+{% endif %}
+
+<!-- Add Connector Modal -->
+<div class="modal fade" id="addConnectorModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/connectors/create" id="connectorForm">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">Add Connector</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3 mb-3">
+            <div class="col-md-7">
+              <label class="form-label fw-semibold">Connector Name</label>
+              <input type="text" class="form-control" name="name" placeholder="e.g. IT Knowledge Base" required>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label fw-semibold">Type</label>
+              <select class="form-select" name="connector_type" id="connectorTypeSelect" onchange="showConfigFields()">
+                {% for t in connector_types %}
+                <option value="{{ t }}">{{ t | capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Sync Interval (minutes)</label>
+              <input type="number" class="form-control" name="sync_interval_minutes" value="60" min="5">
+            </div>
+          </div>
+
+          <!-- ServiceNow fields -->
+          <div id="fields_servicenow" class="config-fields">
+            <hr><p class="text-muted small fw-semibold text-uppercase mb-2" style="letter-spacing:.06em">ServiceNow Config</p>
+            <div class="row g-2">
+              <div class="col-md-12"><label class="form-label small">Instance URL</label><input class="form-control form-control-sm" name="config_instance_url" placeholder="https://acme.service-now.com"></div>
+              <div class="col-md-6"><label class="form-label small">Username</label><input class="form-control form-control-sm" name="config_username"></div>
+              <div class="col-md-6"><label class="form-label small">Password / API Token</label><input class="form-control form-control-sm" type="password" name="config_password"></div>
+              <div class="col-md-12"><label class="form-label small">Knowledge Base sys_id (optional)</label><input class="form-control form-control-sm" name="config_kb_sys_id" placeholder="Leave blank to pull all published articles"></div>
+            </div>
+          </div>
+
+          <!-- SharePoint fields -->
+          <div id="fields_sharepoint" class="config-fields d-none">
+            <hr><p class="text-muted small fw-semibold text-uppercase mb-2" style="letter-spacing:.06em">SharePoint (Microsoft Graph) Config</p>
+            <div class="row g-2">
+              <div class="col-md-6"><label class="form-label small">Tenant ID</label><input class="form-control form-control-sm" name="config_tenant_id"></div>
+              <div class="col-md-6"><label class="form-label small">Client ID</label><input class="form-control form-control-sm" name="config_client_id"></div>
+              <div class="col-md-12"><label class="form-label small">Client Secret</label><input class="form-control form-control-sm" type="password" name="config_client_secret"></div>
+              <div class="col-md-8"><label class="form-label small">Site URL</label><input class="form-control form-control-sm" name="config_site_url" placeholder="https://acme.sharepoint.com/sites/wiki"></div>
+              <div class="col-md-4"><label class="form-label small">Folder Path (optional)</label><input class="form-control form-control-sm" name="config_folder_path" placeholder="/Shared Documents/KB"></div>
+            </div>
+          </div>
+
+          <!-- Confluence fields -->
+          <div id="fields_confluence" class="config-fields d-none">
+            <hr><p class="text-muted small fw-semibold text-uppercase mb-2" style="letter-spacing:.06em">Confluence Config</p>
+            <div class="row g-2">
+              <div class="col-md-12"><label class="form-label small">Base URL</label><input class="form-control form-control-sm" name="config_base_url" placeholder="https://acme.atlassian.net"></div>
+              <div class="col-md-6"><label class="form-label small">Username / Email</label><input class="form-control form-control-sm" name="config_username"></div>
+              <div class="col-md-6"><label class="form-label small">API Token</label><input class="form-control form-control-sm" type="password" name="config_api_token"></div>
+              <div class="col-md-4"><label class="form-label small">Space Key (optional)</label><input class="form-control form-control-sm" name="config_space_key" placeholder="KB"></div>
+            </div>
+          </div>
+
+          <!-- Manual: no extra fields -->
+          <div id="fields_manual" class="config-fields d-none">
+            <hr>
+            <p class="text-muted small">Manual connectors accept documents via file upload and text ingest — no external credentials needed.</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Validate & Add</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showConfigFields() {
+  document.querySelectorAll('.config-fields').forEach(el => el.classList.add('d-none'));
+  const t = document.getElementById('connectorTypeSelect').value;
+  const el = document.getElementById('fields_' + t);
+  if (el) el.classList.remove('d-none');
+}
+showConfigFields();
+</script>
+{% endblock %}

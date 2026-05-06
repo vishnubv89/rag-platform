@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %} — {{ connector.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-4">
+  <a href="/connectors" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  <div>
+    <h4 class="mb-0 fw-bold">{{ connector.name }}</h4>
+    <span class="text-muted small">{{ connector.connector_type }} connector</span>
+  </div>
+  <div class="ms-auto d-flex gap-2">
+    <form action="/connectors/{{ connector.id }}/sync" method="post">
+      <button class="btn btn-sm btn-primary" {% if not connector.is_active %}disabled{% endif %}>
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Now
+      </button>
+    </form>
+    <form action="/connectors/{{ connector.id }}/toggle" method="post">
+      <input type="hidden" name="is_active" value="{{ 'false' if connector.is_active else 'true' }}">
+      <button class="btn btn-sm btn-outline-secondary">
+        {% if connector.is_active %}<i class="bi bi-pause-circle me-1"></i>Pause{% else %}<i class="bi bi-play-circle me-1"></i>Resume{% endif %}
+      </button>
+    </form>
+    <form action="/connectors/{{ connector.id }}/delete" method="post" onsubmit="return confirm('Delete this connector and all its synced documents?')">
+      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+    </form>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Status</div>
+      <span class="badge fs-6
+        {% if connector.last_sync_status == 'success' %}bg-success
+        {% elif connector.last_sync_status == 'error' %}bg-danger
+        {% elif connector.last_sync_status == 'running' %}bg-warning text-dark
+        {% else %}bg-light text-dark{% endif %}">{{ connector.last_sync_status }}</span>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Sync Interval</div>
+      <div class="fw-bold">{{ connector.sync_interval_minutes }} min</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Last Sync</div>
+      <div class="fw-bold">{{ connector.last_synced_at[:16] if connector.last_synced_at else 'Never' }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Active</div>
+      <div class="fw-bold">{{ 'Yes' if connector.is_active else 'No' }}</div>
+    </div>
+  </div>
+</div>
+
+{% if connector.last_sync_message %}
+<div class="alert alert-{% if connector.last_sync_status == 'error' %}danger{% else %}info{% endif %} small">
+  {{ connector.last_sync_message }}
+</div>
+{% endif %}
+
+<div class="card stat-card">
+  <div class="card-header bg-transparent border-bottom fw-semibold">Recent Sync Jobs</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Started</th><th>Status</th><th>Added</th><th>Updated</th><th>Deleted</th><th>Duration</th><th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in connector.recent_jobs %}
+        <tr>
+          <td class="small text-muted">{{ job.started_at[:16] }}</td>
+          <td>
+            <span class="badge
+              {% if job.status == 'success' %}bg-success
+              {% elif job.status == 'error' %}bg-danger
+              {% else %}bg-warning text-dark{% endif %}">{{ job.status }}</span>
+          </td>
+          <td class="text-success fw-semibold">+{{ job.docs_added }}</td>
+          <td class="text-primary">{{ job.docs_updated }}</td>
+          <td class="text-danger">{{ job.docs_deleted }}</td>
+          <td class="small text-muted">
+            {% if job.finished_at %}
+              {{ ((job.finished_at | string)[:19] | replace('T',' ')) }}
+            {% else %}running…{% endif %}
+          </td>
+          <td class="small text-danger">{{ job.error_message or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-3">No sync jobs yet</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

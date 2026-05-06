@@ -112,3 +112,50 @@ async def list_logs(org_id: int | None = None, page: int = 1, from_dt: str | Non
 
 async def token_usage(org_id: int | None = None, days: int = 30) -> list:
     return await _get("/admin/analytics/token-usage", org_id=org_id, days=days)
+
+
+# ── Connectors ────────────────────────────────────────────────────────────────
+
+async def list_connectors(org_id: int | None = None) -> list:
+    return await _get("/admin/connectors", org_id=org_id)
+
+async def connector_types() -> list:
+    data = await _get("/admin/connectors/types")
+    return data.get("types", [])
+
+async def create_connector(name: str, connector_type: str, config: dict, sync_interval_minutes: int, org_id: int | None) -> dict:
+    return await _post("/admin/connectors", json={
+        "name": name, "connector_type": connector_type,
+        "config": config, "sync_interval_minutes": sync_interval_minutes,
+        "org_id": org_id,
+    })
+
+async def get_connector(connector_id: int) -> dict:
+    return await _get(f"/admin/connectors/{connector_id}")
+
+async def patch_connector(connector_id: int, **fields) -> dict:
+    return await _patch(f"/admin/connectors/{connector_id}", json=fields)
+
+async def delete_connector(connector_id: int) -> None:
+    await _delete(f"/admin/connectors/{connector_id}")
+
+async def trigger_sync(connector_id: int) -> dict:
+    return await _post(f"/admin/connectors/{connector_id}/sync")
+
+async def connector_jobs(connector_id: int) -> list:
+    return await _get(f"/admin/connectors/{connector_id}/jobs")
+
+
+# ── Knowledge Health ──────────────────────────────────────────────────────────
+
+async def knowledge_health(org_id: int | None = None) -> dict:
+    return await _get("/admin/knowledge/health", org_id=org_id)
+
+async def list_conflicts(org_id: int | None = None, status: str = "pending") -> list:
+    return await _get("/admin/knowledge/conflicts", org_id=org_id, status=status)
+
+async def resolve_conflict(conflict_id: int, status: str, resolved_doc_id: int | None = None) -> dict:
+    return await _patch(f"/admin/knowledge/conflicts/{conflict_id}", json={"status": status, "resolved_doc_id": resolved_doc_id})
+
+async def stale_documents(org_id: int | None = None, days: int = 90) -> list:
+    return await _get("/admin/knowledge/stale", org_id=org_id, days=days)

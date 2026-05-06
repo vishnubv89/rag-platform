@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from admin_ui.routers import dashboard, documents, settings, orgs, analytics
+from admin_ui.routers import dashboard, documents, settings, orgs, analytics, connectors, knowledge
 
 app = FastAPI(title="RAG Admin UI", docs_url=None, redoc_url=None)
 
@@ -16,6 +16,8 @@ app.include_router(documents.router)
 app.include_router(settings.router)
 app.include_router(orgs.router)
 app.include_router(analytics.router)
+app.include_router(connectors.router)
+app.include_router(knowledge.router)
 
 
 @app.middleware("http")

@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %} — Knowledge Health{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h4 class="mb-0 fw-bold">Knowledge Health</h4>
+  <p class="text-muted small mb-0">Monitor freshness, coverage, and cross-source conflicts</p>
+</div>
+
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<!-- Health Score Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-2">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Total Docs</div>
+      <div class="fw-bold fs-4">{{ health.total_docs or 0 }}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Total Chunks</div>
+      <div class="fw-bold fs-4">{{ health.total_chunks or 0 }}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Active Connectors</div>
+      <div class="fw-bold fs-4">{{ health.active_connectors or 0 }}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Open Conflicts</div>
+      <div class="fw-bold fs-4 {{ 'text-danger' if health.open_conflicts else 'text-success' }}">
+        {{ health.open_conflicts or 0 }}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Stale Docs (90d)</div>
+      <div class="fw-bold fs-4 {{ 'text-warning' if health.stale_docs else 'text-success' }}">
+        {{ health.stale_docs or 0 }}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card stat-card text-center p-3">
+      <div class="text-muted small mb-1">Freshness</div>
+      <div class="fw-bold fs-4 {{ 'text-success' if (health.freshness_pct or 100) >= 80 else 'text-warning' }}">
+        {{ health.freshness_pct or 100 }}%
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Freshness Bar -->
+<div class="card stat-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between mb-1">
+      <span class="small fw-semibold">Knowledge Freshness Score</span>
+      <span class="small text-muted">{{ health.freshness_pct or 100 }}% of docs updated in last 90 days</span>
+    </div>
+    <div class="progress" style="height:10px;border-radius:5px">
+      <div class="progress-bar {% if (health.freshness_pct or 100) >= 80 %}bg-success{% elif (health.freshness_pct or 100) >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+           style="width:{{ health.freshness_pct or 100 }}%"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Conflicts -->
+<div class="card stat-card mb-4">
+  <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-exclamation-triangle text-warning me-2"></i>Open Conflicts</span>
+    <span class="badge bg-warning text-dark">{{ conflicts | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {% if conflicts %}
+    <div class="list-group list-group-flush">
+      {% for c in conflicts %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <span class="fw-semibold small">{{ c.topic or 'Contradiction detected' }}</span>
+            <p class="text-muted small mb-0">{{ c.conflict_summary or '' }}</p>
+          </div>
+          <div class="d-flex gap-1">
+            <form action="/knowledge/conflicts/{{ c.id }}/resolve" method="post">
+              <button class="btn btn-sm btn-success">Resolve</button>
+            </form>
+            <form action="/knowledge/conflicts/{{ c.id }}/dismiss" method="post">
+              <button class="btn btn-sm btn-outline-secondary">Dismiss</button>
+            </form>
+          </div>
+        </div>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <div class="p-2 rounded small" style="background:#fff8f0;border:1px solid #ffe4b5">
+              <span class="text-muted fw-semibold" style="font-size:.7rem">SOURCE A · {{ c.doc_title_a }}</span>
+              <p class="mb-0 mt-1">{{ c.text_a[:200] }}…</p>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="p-2 rounded small" style="background:#f0f8ff;border:1px solid #b5d8ff">
+              <span class="text-muted fw-semibold" style="font-size:.7rem">SOURCE B · {{ c.doc_title_b }}</span>
+              <p class="mb-0 mt-1">{{ c.text_b[:200] }}…</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-4 text-muted small">
+      <i class="bi bi-check-circle text-success" style="font-size:1.5rem"></i>
+      <p class="mt-2 mb-0">No open conflicts — knowledge is consistent across sources.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Stale Documents -->
+<div class="card stat-card">
+  <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-clock-history text-warning me-2"></i>Stale Documents (not synced in 90+ days)</span>
+    <span class="badge bg-secondary">{{ stale | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {% if stale %}
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th>Title</th><th>Connector</th><th>Last Synced</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        {% for doc in stale %}
+        <tr>
+          <td><a href="/documents/{{ doc.id }}" class="text-decoration-none">{{ doc.title or 'Untitled' }}</a></td>
+          <td class="small text-muted">{{ doc.connector_name or 'Manual' }}</td>
+          <td class="small text-muted">{{ doc.last_synced_at[:10] if doc.last_synced_at else 'Never' }}</td>
+          <td class="small text-muted text-truncate" style="max-width:200px">{{ doc.source or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-4 text-muted small">
+      <i class="bi bi-check-circle text-success" style="font-size:1.5rem"></i>
+      <p class="mt-2 mb-0">All documents are fresh.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

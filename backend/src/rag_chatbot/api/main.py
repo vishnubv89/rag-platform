@@ -13,12 +13,15 @@ from rag_chatbot.db.connection import run_schema, close_pool, get_pool
 from rag_chatbot.agent.graph import rag_graph
 from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
 from rag_chatbot.api.admin_router import router as admin_router
+from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await run_schema()
+    start_scheduler()
     yield
+    stop_scheduler()
     await close_pool()
 
 

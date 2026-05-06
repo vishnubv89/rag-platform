@@ -435,10 +435,225 @@ async def system_health():
 @router.post("/system/schema/migrate", status_code=200)
 async def run_migrations():
     await run_schema()
-    migration_path = (
-        FPath(__file__).parent.parent / "db" / "migrations" / "001_multitenancy.sql"
-    )
+    return {"status": "migrations applied"}
+
+
+# ─────────────────────────────────────────────
+# Connectors
+# ─────────────────────────────────────────────
+
+class ConnectorCreate(BaseModel):
+    name: str
+    connector_type: str
+    config: dict = {}
+    sync_interval_minutes: int = 60
+    org_id: int | None = None
+
+
+class ConnectorPatch(BaseModel):
+    name: str | None = None
+    config: dict | None = None
+    is_active: bool | None = None
+    sync_interval_minutes: int | None = None
+
+
+@router.get("/connectors")
+async def list_connectors(org_id: int | None = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(migration_path.read_text())
-    return {"status": "migrations applied"}
+        oid = await _resolve_org(org_id, conn)
+        rows = await conn.fetch(
+            """SELECT id, name, connector_type, is_active, sync_interval_minutes,
+                      last_synced_at, last_sync_status, last_sync_message, created_at
+               FROM connectors WHERE org_id=$1 ORDER BY id""",
+            oid,
+        )
+    return [dict(r) for r in rows]
+
+
+@router.post("/connectors", status_code=201)
+async def create_connector(body: ConnectorCreate):
+    from rag_chatbot.connectors.registry import get as get_connector, available_types
+    if body.connector_type not in available_types():
+        raise HTTPException(status_code=400, detail=f"Unknown connector type. Available: {available_types()}")
+
+    # Validate credentials
+    connector = get_connector(body.connector_type, body.config)
+    ok, err = await connector.validate_config()
+    if not ok:
+        raise HTTPException(status_code=422, detail=f"Config validation failed: {err}")
+
+    pool = await get_pool()
+    import json as _json
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(body.org_id, conn)
+        row = await conn.fetchrow(
+            """INSERT INTO connectors (org_id, name, connector_type, config, sync_interval_minutes)
+               VALUES ($1,$2,$3,$4,$5)
+               RETURNING id, name, connector_type, is_active, sync_interval_minutes, last_sync_status""",
+            oid, body.name, body.connector_type,
+            _json.dumps(body.config), body.sync_interval_minutes,
+        )
+    return dict(row)
+
+
+@router.get("/connectors/types")
+async def connector_types():
+    from rag_chatbot.connectors.registry import available_types
+    return {"types": available_types()}
+
+
+@router.get("/connectors/{connector_id}")
+async def get_connector_detail(connector_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT id, name, connector_type, is_active, sync_interval_minutes,
+                      last_synced_at, last_sync_status, last_sync_message, created_at, org_id
+               FROM connectors WHERE id=$1""",
+            connector_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Connector not found")
+        jobs = await conn.fetch(
+            """SELECT id, status, docs_added, docs_updated, docs_deleted,
+                      error_message, started_at, finished_at
+               FROM sync_jobs WHERE connector_id=$1 ORDER BY started_at DESC LIMIT 10""",
+            connector_id,
+        )
+    return {**dict(row), "recent_jobs": [dict(j) for j in jobs]}
+
+
+@router.patch("/connectors/{connector_id}")
+async def patch_connector(connector_id: int, body: ConnectorPatch):
+    pool = await get_pool()
+    import json as _json
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM connectors WHERE id=$1", connector_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Connector not found")
+        if body.name is not None:
+            await conn.execute("UPDATE connectors SET name=$1, updated_at=now() WHERE id=$2", body.name, connector_id)
+        if body.config is not None:
+            await conn.execute("UPDATE connectors SET config=$1, updated_at=now() WHERE id=$2", _json.dumps(body.config), connector_id)
+        if body.is_active is not None:
+            await conn.execute("UPDATE connectors SET is_active=$1, updated_at=now() WHERE id=$2", body.is_active, connector_id)
+        if body.sync_interval_minutes is not None:
+            await conn.execute("UPDATE connectors SET sync_interval_minutes=$1, updated_at=now() WHERE id=$2", body.sync_interval_minutes, connector_id)
+        updated = await conn.fetchrow(
+            "SELECT id, name, connector_type, is_active, sync_interval_minutes, last_sync_status FROM connectors WHERE id=$1",
+            connector_id,
+        )
+    return dict(updated)
+
+
+@router.delete("/connectors/{connector_id}", status_code=204)
+async def delete_connector(connector_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM connectors WHERE id=$1", connector_id)
+
+
+@router.post("/connectors/{connector_id}/sync")
+async def trigger_sync(connector_id: int):
+    import asyncio
+    from rag_chatbot.connectors.sync_engine import run_sync
+    asyncio.create_task(run_sync(connector_id))
+    return {"status": "sync triggered", "connector_id": connector_id}
+
+
+@router.get("/connectors/{connector_id}/jobs")
+async def connector_jobs(connector_id: int, limit: int = Query(20, ge=1, le=100)):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, status, docs_added, docs_updated, docs_deleted,
+                      error_message, started_at, finished_at
+               FROM sync_jobs WHERE connector_id=$1 ORDER BY started_at DESC LIMIT $2""",
+            connector_id, limit,
+        )
+    return [dict(r) for r in rows]
+
+
+# ─────────────────────────────────────────────
+# Knowledge Health
+# ─────────────────────────────────────────────
+
+@router.get("/knowledge/health")
+async def knowledge_health(org_id: int | None = Query(None)):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn)
+        row = await conn.fetchrow("SELECT * FROM knowledge_health WHERE org_id=$1", oid)
+    return dict(row) if row else {
+        "org_id": oid, "total_docs": 0, "total_chunks": 0,
+        "stale_docs": 0, "open_conflicts": 0, "active_connectors": 0, "freshness_pct": 100,
+    }
+
+
+@router.get("/knowledge/conflicts")
+async def list_conflicts(
+    org_id: int | None = Query(None),
+    status: str = Query("pending"),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn)
+        rows = await conn.fetch(
+            """SELECT kc.id, kc.topic, kc.conflict_summary, kc.status, kc.created_at,
+                      ca.text AS text_a, cb.text AS text_b,
+                      da.title AS doc_title_a, db.title AS doc_title_b
+               FROM knowledge_conflicts kc
+               JOIN chunks ca ON ca.id = kc.chunk_id_a
+               JOIN chunks cb ON cb.id = kc.chunk_id_b
+               JOIN documents da ON da.id = ca.doc_id
+               JOIN documents db ON db.id = cb.doc_id
+               WHERE kc.org_id=$1 AND kc.status=$2
+               ORDER BY kc.created_at DESC""",
+            oid, status,
+        )
+    return [dict(r) for r in rows]
+
+
+class ConflictResolve(BaseModel):
+    status: str  # resolved | dismissed
+    resolved_doc_id: int | None = None
+
+
+@router.patch("/knowledge/conflicts/{conflict_id}")
+async def resolve_conflict(conflict_id: int, body: ConflictResolve):
+    if body.status not in ("resolved", "dismissed"):
+        raise HTTPException(status_code=400, detail="status must be 'resolved' or 'dismissed'")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE knowledge_conflicts
+               SET status=$1, resolved_doc_id=$2, resolved_at=now()
+               WHERE id=$3""",
+            body.status, body.resolved_doc_id, conflict_id,
+        )
+    return {"id": conflict_id, "status": body.status}
+
+
+@router.get("/knowledge/stale")
+async def stale_documents(
+    org_id: int | None = Query(None),
+    days: int = Query(90, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn)
+        rows = await conn.fetch(
+            """SELECT d.id, d.title, d.source, d.last_synced_at, d.created_at,
+                      c.name AS connector_name
+               FROM documents d
+               LEFT JOIN connectors c ON c.id = d.connector_id
+               WHERE d.org_id=$1
+                 AND (d.last_synced_at < now() - ($2 || ' days')::INTERVAL
+                      OR d.last_synced_at IS NULL)
+               ORDER BY d.last_synced_at ASC NULLS FIRST
+               LIMIT $3""",
+            oid, str(days), limit,
+        )
+    return [dict(r) for r in rows]
