@@ -31,6 +31,15 @@ async def close_pool() -> None:
 
 
 async def run_schema() -> None:
+    # Install the pgvector extension via a plain connection before creating the
+    # pool — register_vector (called for every pool connection) will fail with
+    # "unknown type: public.vector" if the extension doesn't exist yet.
+    raw = await asyncpg.connect(settings.database_url)
+    try:
+        await raw.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    finally:
+        await raw.close()
+
     schema_sql = (Path(__file__).parent / "schema.sql").read_text()
     pool = await get_pool()
     async with pool.acquire() as conn:
