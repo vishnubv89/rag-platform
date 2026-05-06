@@ -13,57 +13,121 @@
   </form>
 </div>
 
-<div class="card stat-card">
-  <div class="card-body">
-    <form method="post" action="/settings">
-      <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
+{% if request.query_params.get('saved') %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+  Settings saved successfully.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<form method="post" action="/settings">
+  <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
+
+  <!-- ── LLM Provider ─────────────────────────────────────────────── -->
+  <div class="card stat-card mb-3">
+    <div class="card-header fw-semibold">LLM Provider</div>
+    <div class="card-body">
+      <div class="row g-3">
+
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Provider</label>
+          <select class="form-select" name="llm_provider" id="llmProvider" onchange="toggleProvider()">
+            <option value="gemini"    {% if config.get('llm_provider','gemini') == 'gemini'    %}selected{% endif %}>Gemini (Google)</option>
+            <option value="anthropic" {% if config.get('llm_provider','gemini') == 'anthropic' %}selected{% endif %}>Anthropic (Claude)</option>
+          </select>
+          <div class="form-text">Applies to all LLM calls — routing, grading, generation.</div>
+        </div>
+
+        <!-- Gemini fields -->
+        <div class="col-md-8" id="geminiFields">
+          <label class="form-label fw-semibold">Gemini Model</label>
+          <input class="form-control" name="llm_model" value="{{ config.get('llm_model','gemini-2.0-flash') }}">
+          <div class="form-text">e.g. gemini-2.0-flash, gemini-1.5-pro, gemini-2.5-pro</div>
+        </div>
+
+        <!-- Anthropic fields -->
+        <div class="col-md-4" id="anthropicModelField" style="display:none">
+          <label class="form-label fw-semibold">Claude Model</label>
+          <input class="form-control" name="anthropic_model" value="{{ config.get('anthropic_model','claude-sonnet-4-6') }}">
+          <div class="form-text">e.g. claude-sonnet-4-6, claude-opus-4-7, claude-haiku-4-5-20251001</div>
+        </div>
+
+        <div class="col-md-4" id="anthropicKeyField" style="display:none">
+          <label class="form-label fw-semibold">Anthropic API Key</label>
+          <input class="form-control font-monospace" type="password" name="anthropic_api_key"
+                 placeholder="{% if config.get('anthropic_api_key') %}sk-ant-••••••••{% else %}sk-ant-…{% endif %}"
+                 autocomplete="new-password">
+          <div class="form-text">
+            {% if config.get('anthropic_api_key') %}
+              Key is set. Leave blank to keep existing.
+            {% else %}
+              Not set. Enter your key from <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.
+            {% endif %}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Retrieval ─────────────────────────────────────────────────── -->
+  <div class="card stat-card mb-3">
+    <div class="card-header fw-semibold">Retrieval &amp; Chunking</div>
+    <div class="card-body">
       <div class="row g-3">
 
         <div class="col-md-6">
-          <label class="form-label fw-semibold">LLM Model</label>
-          <input class="form-control" name="llm_model" value="{{ config.get('llm_model','gemini-2.0-flash') }}">
-          <div class="form-text">e.g. gemini-2.0-flash, gemini-1.5-pro</div>
-        </div>
-
-        <div class="col-md-6">
           <label class="form-label fw-semibold">Embedding Model</label>
-          <input class="form-control" name="embedding_model" value="{{ config.get('embedding_model','text-embedding-004') }}">
+          <input class="form-control" name="embedding_model" value="{{ config.get('embedding_model','models/gemini-embedding-001') }}">
+          <div class="form-text">Always Gemini — Anthropic has no embedding API.</div>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label fw-semibold">Embedding Dimensions</label>
           <input class="form-control" name="embedding_dim" type="number" value="{{ config.get('embedding_dim','768') }}">
           <div class="form-text">768 / 1536 / 3072</div>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label fw-semibold">Retrieval Top-K</label>
           <input class="form-control" name="retrieval_top_k" type="number" min="1" max="50" value="{{ config.get('retrieval_top_k','8') }}">
-          <div class="form-text">Chunks returned per query</div>
+          <div class="form-text">Chunks per query</div>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label fw-semibold">Grader Max Loops</label>
           <input class="form-control" name="grader_max_loops" type="number" min="1" max="10" value="{{ config.get('grader_max_loops','3') }}">
-          <div class="form-text">Max retrieval retries before fallback</div>
+          <div class="form-text">Retrieval retries</div>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label fw-semibold">Chunk Size (tokens)</label>
           <input class="form-control" name="chunk_size" type="number" min="50" max="2000" value="{{ config.get('chunk_size','300') }}">
         </div>
 
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label fw-semibold">Chunk Overlap (tokens)</label>
           <input class="form-control" name="chunk_overlap" type="number" min="0" max="500" value="{{ config.get('chunk_overlap','50') }}">
         </div>
 
-        <div class="col-12">
-          <button class="btn btn-primary">Save Settings</button>
-          <span class="text-muted small ms-3">Changes apply to new ingestion and queries — existing embeddings are not re-generated.</span>
-        </div>
       </div>
-    </form>
+    </div>
   </div>
-</div>
+
+  <div class="d-flex align-items-center gap-3">
+    <button class="btn btn-primary px-4">Save Settings</button>
+    <span class="text-muted small">Chunk/embedding changes apply to new ingestion only — existing embeddings are not re-generated.</span>
+  </div>
+</form>
+
+<script>
+function toggleProvider() {
+  const p = document.getElementById('llmProvider').value;
+  document.getElementById('geminiFields').style.display       = p === 'gemini'    ? '' : 'none';
+  document.getElementById('anthropicModelField').style.display = p === 'anthropic' ? '' : 'none';
+  document.getElementById('anthropicKeyField').style.display   = p === 'anthropic' ? '' : 'none';
+}
+// Run on load to reflect saved state
+toggleProvider();
+</script>
 {% endblock %}

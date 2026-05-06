@@ -24,12 +24,21 @@ Respond with ONLY one word: RETRIEVE or ANSWER."""
 
 async def router_node(state: AgentState) -> dict:
     query = state["messages"][-1]["content"]
+    cfg = state.get("llm_config", {})
     loop = asyncio.get_event_loop()
     decision = await loop.run_in_executor(
-        None, _generate, f"Question: {query}", _ROUTER_SYSTEM
+        None, lambda: _generate(f"Question: {query}", _ROUTER_SYSTEM, cfg)
     )
     needs_retrieval = "RETRIEVE" in decision.upper()
-    return {"query": query, "grading_passed": False, "loop_count": 0, "retrieved_docs": [], "answer": "", "source_chunk_ids": [], "_route": "retrieve" if needs_retrieval else "answer"}
+    return {
+        "query": query,
+        "grading_passed": False,
+        "loop_count": 0,
+        "retrieved_docs": [],
+        "answer": "",
+        "source_chunk_ids": [],
+        "_route": "retrieve" if needs_retrieval else "answer",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -53,11 +62,14 @@ Respond with ONLY one word: RELEVANT or IRRELEVANT."""
 async def grader_node(state: AgentState) -> dict:
     query = state["query"]
     docs = state["retrieved_docs"]
+    cfg = state.get("llm_config", {})
 
     async def grade_doc(doc: dict) -> bool:
         loop = asyncio.get_event_loop()
         prompt = f"Query: {query}\n\nDocument chunk:\n{doc['text']}"
-        verdict = await loop.run_in_executor(None, _generate, prompt, _GRADER_SYSTEM)
+        verdict = await loop.run_in_executor(
+            None, lambda: _generate(prompt, _GRADER_SYSTEM, cfg)
+        )
         return "RELEVANT" in verdict.upper()
 
     results = await asyncio.gather(*[grade_doc(d) for d in docs])
@@ -81,9 +93,12 @@ keywords. Respond with ONLY the rewritten query, nothing else."""
 
 
 async def rewriter_node(state: AgentState) -> dict:
+    cfg = state.get("llm_config", {})
     loop = asyncio.get_event_loop()
     prompt = f"Original query: {state['query']}"
-    new_query = await loop.run_in_executor(None, _generate, prompt, _REWRITER_SYSTEM)
+    new_query = await loop.run_in_executor(
+        None, lambda: _generate(prompt, _REWRITER_SYSTEM, cfg)
+    )
     return {"query": new_query}
 
 
@@ -99,6 +114,7 @@ If the documents don't contain enough information, say so honestly."""
 async def generator_node(state: AgentState) -> dict:
     query = state["messages"][-1]["content"]
     docs = state["retrieved_docs"]
+    cfg = state.get("llm_config", {})
 
     if docs:
         context = "\n\n".join(
@@ -109,7 +125,9 @@ async def generator_node(state: AgentState) -> dict:
         prompt = f"Question: {query}\n\n(No documents were retrieved — answer from general knowledge.)"
 
     loop = asyncio.get_event_loop()
-    answer = await loop.run_in_executor(None, _generate, prompt, _GENERATOR_SYSTEM)
+    answer = await loop.run_in_executor(
+        None, lambda: _generate(prompt, _GENERATOR_SYSTEM, cfg)
+    )
 
     source_ids = [d["chunk_id"] for d in docs]
     assistant_message = {"role": "assistant", "content": answer}

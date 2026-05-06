@@ -87,22 +87,25 @@ async def chat(req: ChatRequest):
         "answer": "",
         "source_chunk_ids": [],
     }
+    # Fetch org config to drive provider/model selection at runtime
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        org_id = req.org_id or await conn.fetchval(
+            "SELECT id FROM organizations WHERE slug='default'"
+        )
+        rows = await conn.fetch(
+            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
+        ) if org_id else []
+    llm_config = {r["key"]: r["value"] for r in rows}
+
     t0 = time.monotonic()
     try:
-        final_state = await rag_graph.ainvoke(initial_state)
+        final_state = await rag_graph.ainvoke(initial_state | {"llm_config": llm_config})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     latency_ms = int((time.monotonic() - t0) * 1000)
 
-    # Resolve org_id — fall back to default org
-    pool = await get_pool()
     async with pool.acquire() as conn:
-        if req.org_id is not None:
-            org_id = req.org_id
-        else:
-            org_id = await conn.fetchval(
-                "SELECT id FROM organizations WHERE slug='default'"
-            )
         if org_id is not None:
             await conn.execute(
                 """

@@ -23,3 +23,6 @@ class AgentState(TypedDict):
 
     # Source chunk IDs included in the answer
     source_chunk_ids: list[int]
+
+    # Runtime LLM config from app_config table (overrides env defaults)
+    llm_config: dict

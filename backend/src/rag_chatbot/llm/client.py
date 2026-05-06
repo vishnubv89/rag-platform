@@ -4,42 +4,56 @@ from google.genai import types
 
 from rag_chatbot.config import settings
 
-_gemini_client: genai.Client | None = None
-_anthropic_client: _anthropic.Anthropic | None = None
+# Keyed by api_key so switching keys in admin UI gets a fresh client
+_gemini_clients: dict[str, genai.Client] = {}
+_anthropic_clients: dict[str, _anthropic.Anthropic] = {}
 
 
-def _gemini() -> genai.Client:
-    global _gemini_client
-    if _gemini_client is None:
-        _gemini_client = genai.Client(api_key=settings.gemini_api_key)
-    return _gemini_client
+def _gemini(api_key: str) -> genai.Client:
+    if api_key not in _gemini_clients:
+        _gemini_clients[api_key] = genai.Client(api_key=api_key)
+    return _gemini_clients[api_key]
 
 
-def _anthropic_c() -> _anthropic.Anthropic:
-    global _anthropic_client
-    if _anthropic_client is None:
-        if not settings.anthropic_api_key:
+def _anthropic_client(api_key: str) -> _anthropic.Anthropic:
+    if api_key not in _anthropic_clients:
+        _anthropic_clients[api_key] = _anthropic.Anthropic(api_key=api_key)
+    return _anthropic_clients[api_key]
+
+
+def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
+    """Generate a response using the configured LLM provider.
+
+    config dict keys (all optional, fall back to env/settings):
+      llm_provider      — "gemini" | "anthropic"
+      llm_model         — Gemini model name
+      gemini_api_key    — override env GEMINI_API_KEY
+      anthropic_model   — Anthropic model name
+      anthropic_api_key — override env ANTHROPIC_API_KEY
+    """
+    cfg = config or {}
+    provider = cfg.get("llm_provider") or settings.llm_provider
+
+    if provider == "anthropic":
+        api_key = cfg.get("anthropic_api_key") or settings.anthropic_api_key
+        if not api_key:
             raise ValueError(
-                "ANTHROPIC_API_KEY is not set. Set it in your environment or .env file."
+                "No Anthropic API key configured. Set it in Admin → Settings → Anthropic API Key."
             )
-        _anthropic_client = _anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    return _anthropic_client
-
-
-def generate(prompt: str, system: str = "") -> str:
-    """Generate a response using the configured LLM provider."""
-    if settings.llm_provider == "anthropic":
-        msg = _anthropic_c().messages.create(
-            model=settings.anthropic_model,
+        model = cfg.get("anthropic_model") or settings.anthropic_model
+        msg = _anthropic_client(api_key).messages.create(
+            model=model,
             max_tokens=1024,
             system=system or "You are a helpful assistant.",
             messages=[{"role": "user", "content": prompt}],
         )
         return msg.content[0].text.strip()
 
-    # Default: Gemini
-    response = _gemini().models.generate_content(
-        model=settings.llm_model,
+    # Gemini (default)
+    api_key = cfg.get("gemini_api_key") or settings.gemini_api_key
+    model = cfg.get("llm_model") or settings.llm_model
+    response = _gemini(api_key).models.generate_content(
+        model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
             system_instruction=system or None,
