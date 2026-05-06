@@ -23,12 +23,10 @@ services:
     container_name: rag_backend
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/rag_db
-      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-change-me}
       CORS_ORIGINS: '["http://localhost:5173","http://localhost:8080"]'
       APP_ENV: development
     depends_on:
