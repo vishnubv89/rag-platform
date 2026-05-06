@@ -24,5 +24,11 @@ class AgentState(TypedDict):
     # Source chunk IDs included in the answer
     source_chunk_ids: list[int]
 
+    # Enriched source metadata for citations [{chunk_id, doc_id, doc_title, doc_source}]
+    sources: list[dict]
+
+    # True when the query is a greeting/chitchat — skip retrieval
+    skip_retrieval: bool
+
     # Runtime LLM config from app_config table (overrides env defaults)
     llm_config: dict

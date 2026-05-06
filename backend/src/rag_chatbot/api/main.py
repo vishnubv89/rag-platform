@@ -54,6 +54,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     source_chunk_ids: list[int]
+    sources: list[dict]
     loop_count: int
     session_id: str
 
@@ -86,6 +87,8 @@ async def chat(req: ChatRequest):
         "loop_count": 0,
         "answer": "",
         "source_chunk_ids": [],
+        "sources": [],
+        "skip_retrieval": False,
         "llm_config": {},
     }
     # Fetch org config to drive provider/model selection at runtime
@@ -127,6 +130,7 @@ async def chat(req: ChatRequest):
     return ChatResponse(
         answer=final_state["answer"],
         source_chunk_ids=final_state["source_chunk_ids"],
+        sources=final_state.get("sources", []),
         loop_count=final_state["loop_count"],
         session_id=session_id,
     )

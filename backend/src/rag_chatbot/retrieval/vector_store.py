@@ -26,16 +26,27 @@ semantic AS (
     FROM chunks c
     ORDER BY c.embedding <=> $2::vector
     LIMIT 20
+),
+fused AS (
+    SELECT
+        COALESCE(b.id,     s.id)     AS chunk_id,
+        COALESCE(b.doc_id, s.doc_id) AS doc_id,
+        COALESCE(b.text,   s.text)   AS text,
+        1.0 / (60 + COALESCE(b.rank, 999)) +
+        1.0 / (60 + COALESCE(s.rank, 999)) AS rrf_score
+    FROM bm25 b
+    FULL OUTER JOIN semantic s ON b.id = s.id
 )
 SELECT
-    COALESCE(b.id,   s.id)   AS chunk_id,
-    COALESCE(b.doc_id, s.doc_id) AS doc_id,
-    COALESCE(b.text, s.text) AS text,
-    1.0 / (60 + COALESCE(b.rank, 999)) +
-    1.0 / (60 + COALESCE(s.rank, 999)) AS rrf_score
-FROM bm25 b
-FULL OUTER JOIN semantic s ON b.id = s.id
-ORDER BY rrf_score DESC
+    f.chunk_id,
+    f.doc_id,
+    f.text,
+    f.rrf_score,
+    d.title AS doc_title,
+    d.source AS doc_source
+FROM fused f
+JOIN documents d ON d.id = f.doc_id
+ORDER BY f.rrf_score DESC
 LIMIT $3
 """
 
@@ -55,6 +66,8 @@ async def hybrid_search(query: str, top_k: int | None = None) -> list[dict]:
             "doc_id": row["doc_id"],
             "text": row["text"],
             "score": float(row["rrf_score"]),
+            "doc_title": row["doc_title"] or "",
+            "doc_source": row["doc_source"] or "",
         }
         for row in rows
     ]

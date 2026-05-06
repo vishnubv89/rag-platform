@@ -1,8 +1,9 @@
 """
 LangGraph node functions for the Agentic RAG loop.
 
-Flow: retriever → grader → generator
+Flow: intent → retriever → grader → generator
                          ↘ rewriter → retriever (loop, max grader_max_loops)
+      intent (greeting)  → generator  (skip retrieval entirely)
 """
 import asyncio
 import json
@@ -11,6 +12,24 @@ import re
 from rag_chatbot.llm.client import generate as _generate
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.agent.state import AgentState
+
+
+# ---------------------------------------------------------------------------
+# Intent — lightweight keyword check, no LLM call
+# ---------------------------------------------------------------------------
+
+_CHITCHAT_RE = re.compile(
+    r"^\s*(hi+|hello+|hey+|howdy|greetings|good\s*(morning|afternoon|evening|day)|"
+    r"what'?s\s+up|sup|yo+|hiya|how\s+are\s+you|how\s+do\s+you\s+do|nice\s+to\s+meet\s+you|"
+    r"thanks?(\s+you)?|thank\s+you|bye+|goodbye|see\s+you|take\s+care|"
+    r"who\s+are\s+you|what\s+are\s+you|what\s+can\s+you\s+do)\W*$",
+    re.IGNORECASE,
+)
+
+
+async def intent_node(state: AgentState) -> dict:
+    query = state["messages"][-1]["content"]
+    return {"skip_retrieval": bool(_CHITCHAT_RE.match(query.strip()))}
 
 
 # ---------------------------------------------------------------------------
@@ -106,29 +125,48 @@ async def rewriter_node(state: AgentState) -> dict:
 
 _GENERATOR_SYSTEM = (
     "You are a helpful assistant that answers questions using ONLY the provided "
-    "document chunks. Cite sources as [chunk_id: X]. If the documents lack "
-    "enough information, say so honestly."
+    "document chunks. Cite sources by document name as [Source: document_title]. "
+    "If the documents lack enough information, say so honestly."
 )
+
+_CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
 
 
 async def generator_node(state: AgentState) -> dict:
     query = state["messages"][-1]["content"]
     docs = state["retrieved_docs"]
     cfg = state.get("llm_config", {})
+    skip = state.get("skip_retrieval", False)
 
-    if docs:
-        context = "\n\n".join(f"[chunk_id: {d['chunk_id']}]\n{d['text']}" for d in docs)
-        prompt = f"Question: {query}\n\nContext:\n{context}"
+    if skip or not docs:
+        prompt = query
+        system = _CHITCHAT_SYSTEM
     else:
-        prompt = f"Question: {query}\n\n(No documents retrieved — answer from general knowledge.)"
+        context = "\n\n".join(
+            f"[Source: {d.get('doc_title') or 'Unknown'} | chunk {d['chunk_id']}]\n{d['text']}"
+            for d in docs
+        )
+        prompt = f"Question: {query}\n\nContext:\n{context}"
+        system = _GENERATOR_SYSTEM
 
     loop = asyncio.get_running_loop()
     answer = await loop.run_in_executor(
-        None, lambda: _generate(prompt, _GENERATOR_SYSTEM, cfg)
+        None, lambda: _generate(prompt, system, cfg)
     )
+
+    sources = [
+        {
+            "chunk_id": d["chunk_id"],
+            "doc_id": d["doc_id"],
+            "doc_title": d.get("doc_title") or "",
+            "doc_source": d.get("doc_source") or "",
+        }
+        for d in docs
+    ]
 
     return {
         "answer": answer,
         "source_chunk_ids": [d["chunk_id"] for d in docs],
+        "sources": sources,
         "messages": [{"role": "assistant", "content": answer}],
     }

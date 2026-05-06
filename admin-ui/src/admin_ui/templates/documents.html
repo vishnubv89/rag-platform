@@ -45,7 +45,7 @@
         <tr><th>ID</th><th>Title</th><th>Source</th><th>Chunks</th><th>Created</th><th></th></tr>
       </thead>
       <tbody>
-      {% for d in docs.items %}
+      {% for d in docs['items'] %}
       <tr>
         <td class="text-muted">{{ d.id }}</td>
         <td><a href="/documents/{{ d.id }}">{{ d.title }}</a></td>
@@ -65,9 +65,9 @@
       </tbody>
     </table>
   </div>
-  {% if docs.total > 20 %}
+  {% if docs['total'] > 20 %}
   <div class="card-footer bg-white d-flex justify-content-between align-items-center">
-    <small class="text-muted">{{ docs.total }} total</small>
+    <small class="text-muted">{{ docs['total'] }} total</small>
     <div class="btn-group btn-group-sm">
       {% if page > 1 %}<a class="btn btn-outline-secondary" href="?page={{ page-1 }}&org_id={{ active_org_id or '' }}">Prev</a>{% endif %}
       <a class="btn btn-outline-secondary" href="?page={{ page+1 }}&org_id={{ active_org_id or '' }}">Next</a>
