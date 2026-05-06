@@ -28,6 +28,12 @@ async def _post(path: str, json: dict | None = None, **kwargs) -> dict:
     return r.json()
 
 
+async def _put(path: str, json: dict) -> dict:
+    r = await get_client().put(path, json=json)
+    r.raise_for_status()
+    return r.json()
+
+
 async def _patch(path: str, json: dict) -> dict:
     r = await get_client().patch(path, json=json)
     r.raise_for_status()
@@ -93,7 +99,7 @@ async def get_config(org_id: int | None = None) -> dict:
     return await _get("/admin/config", org_id=org_id)
 
 async def update_config(org_id: int | None, cfg: dict) -> dict:
-    return await _post("/admin/config", json={"org_id": org_id, "settings": cfg})
+    return await _put("/admin/config", json={"org_id": org_id, "settings": cfg})
 
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
