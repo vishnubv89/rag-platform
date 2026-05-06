@@ -1,4 +1,6 @@
 import asyncio
+import functools
+
 from google import genai
 from google.genai import types
 
@@ -14,34 +16,34 @@ def _get_client() -> genai.Client:
     return _client
 
 
-async def embed_text(text: str, task_type: str = "RETRIEVAL_QUERY") -> list[float]:
-    """Embed a single text string."""
-    client = _get_client()
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(
-        None,
-        lambda: client.models.embed_content(
-            model=settings.embedding_model,
-            contents=text,
-            config=types.EmbedContentConfig(
-                task_type=task_type,
-                output_dimensionality=settings.embedding_dim,
-            ),
+@functools.lru_cache(maxsize=512)
+def _embed_sync(text: str, task_type: str) -> tuple[float, ...]:
+    """Sync embed with LRU cache — query embeddings are often repeated."""
+    response = _get_client().models.embed_content(
+        model=settings.embedding_model,
+        contents=text,
+        config=types.EmbedContentConfig(
+            task_type=task_type,
+            output_dimensionality=settings.embedding_dim,
         ),
     )
-    return response.embeddings[0].values
+    return tuple(response.embeddings[0].values)
+
+
+async def embed_text(text: str, task_type: str = "RETRIEVAL_QUERY") -> list[float]:
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, _embed_sync, text, task_type)
+    return list(result)
 
 
 async def embed_batch(
     texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT"
 ) -> list[list[float]]:
     """Embed a batch of texts. Gemini supports up to 100 per request."""
-    client = _get_client()
-    loop = asyncio.get_event_loop()
-
+    loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
-        lambda: client.models.embed_content(
+        lambda: _get_client().models.embed_content(
             model=settings.embedding_model,
             contents=texts,
             config=types.EmbedContentConfig(
@@ -50,4 +52,4 @@ async def embed_batch(
             ),
         ),
     )
-    return [e.values for e in response.embeddings]
+    return [list(e.values) for e in response.embeddings]

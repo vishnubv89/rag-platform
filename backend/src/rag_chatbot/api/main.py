@@ -86,6 +86,7 @@ async def chat(req: ChatRequest):
         "loop_count": 0,
         "answer": "",
         "source_chunk_ids": [],
+        "llm_config": {},
     }
     # Fetch org config to drive provider/model selection at runtime
     pool = await get_pool()
