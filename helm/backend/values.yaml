@@ -1,0 +1,39 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/your-org/rag-backend
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.rag.example.com
+  tlsSecret: rag-backend-tls
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+env:
+  APP_ENV: production
+  CORS_ORIGINS: '["https://chat.rag.example.com","https://admin.rag.example.com"]'
+
+secrets:
+  GEMINI_API_KEY: ""
+  DATABASE_URL: ""
+  ADMIN_SECRET_KEY: ""

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %} — Organizations{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0">Organizations</h4>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createOrgModal">
+    <i class="bi bi-plus-lg me-1"></i>New Org
+  </button>
+</div>
+
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr><th>ID</th><th>Name</th><th>Slug</th><th>Status</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for o in orgs %}
+      <tr>
+        <td class="text-muted">{{ o.id }}</td>
+        <td><a href="/orgs/{{ o.id }}">{{ o.name }}</a></td>
+        <td><code>{{ o.slug }}</code></td>
+        <td>
+          {% if o.is_active %}
+          <span class="badge bg-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary">Inactive</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ o.created_at[:10] if o.created_at else '' }}</td>
+        <td>
+          <form method="post" action="/orgs/{{ o.id }}/toggle" class="d-inline">
+            <input type="hidden" name="is_active" value="{{ 'false' if o.is_active else 'true' }}">
+            <button class="btn btn-sm btn-outline-secondary">{{ 'Deactivate' if o.is_active else 'Activate' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-center text-muted py-4">No organizations yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Create Org Modal -->
+<div class="modal fade" id="createOrgModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/orgs">
+        <div class="modal-header">
+          <h5 class="modal-title">New Organization</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" required placeholder="Acme Corp">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Slug <span class="text-muted small">(URL-safe identifier)</span></label>
+            <input class="form-control" name="slug" required placeholder="acme-corp" pattern="[a-z0-9\-]+">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

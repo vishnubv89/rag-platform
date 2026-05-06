@@ -1,0 +1,27 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-admin-ui
+  annotations:
+    {{- if .Values.ingress.whitelistSourceRange }}
+    nginx.ingress.kubernetes.io/whitelist-source-range: {{ .Values.ingress.whitelistSourceRange | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tlsSecret }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-admin-ui
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

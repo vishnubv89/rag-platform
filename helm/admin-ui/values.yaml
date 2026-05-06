@@ -1,0 +1,32 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/your-org/rag-admin-ui
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  host: admin.rag.example.com
+  tlsSecret: rag-admin-tls
+  whitelistSourceRange: "10.0.0.0/8"   # restrict to internal network
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+env:
+  BACKEND_URL: http://rag-backend:8000   # internal K8s DNS
+  APP_ENV: production
+
+secrets:
+  ADMIN_SECRET_KEY: ""

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %} — Dashboard{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0">Dashboard</h4>
+  <form class="d-flex gap-2" method="get" action="/">
+    <select name="org_id" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">All orgs</option>
+      {% for o in orgs %}
+      <option value="{{ o.id }}" {% if active_org_id == o.id %}selected{% endif %}>{{ o.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Total Chats</div>
+      <div class="fs-3 fw-bold">{{ summary.get('total_chats', 0) }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Prompt Tokens</div>
+      <div class="fs-3 fw-bold">{{ "{:,}".format(summary.get('total_prompt_tokens', 0)) }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Completion Tokens</div>
+      <div class="fs-3 fw-bold">{{ "{:,}".format(summary.get('total_completion_tokens', 0)) }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Avg Latency</div>
+      <div class="fs-3 fw-bold">{{ summary.get('avg_latency_ms', 0) }} ms</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card stat-card">
+      <div class="card-header bg-white fw-semibold">Recent Documents</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Title</th><th>Chunks</th></tr></thead>
+          <tbody>
+          {% for d in recent_docs %}
+          <tr><td><a href="/documents/{{ d.id }}">{{ d.title }}</a></td><td>{{ d.chunk_count }}</td></tr>
+          {% else %}
+          <tr><td colspan="2" class="text-muted text-center py-3">No documents yet</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card stat-card">
+      <div class="card-header bg-white fw-semibold">Recent Chats</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Question</th><th>Latency</th></tr></thead>
+          <tbody>
+          {% for l in recent_logs %}
+          <tr><td>{{ l.user_message[:60] }}…</td><td>{{ l.latency_ms }}ms</td></tr>
+          {% else %}
+          <tr><td colspan="2" class="text-muted text-center py-3">No chats yet</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

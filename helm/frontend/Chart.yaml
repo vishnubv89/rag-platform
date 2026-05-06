@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rag-frontend
+description: RAG Chatbot Frontend (React + Vite + Nginx)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

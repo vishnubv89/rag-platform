@@ -1,0 +1,27 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/your-org/rag-frontend
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: chat.rag.example.com
+  tlsSecret: rag-frontend-tls
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+env:
+  VITE_API_BASE_URL: https://api.rag.example.com
