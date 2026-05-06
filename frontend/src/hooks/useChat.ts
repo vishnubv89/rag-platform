@@ -18,6 +18,7 @@ export function useChat() {
       role: "user",
       content: text.trim(),
       sourceChunkIds: [],
+      sources: [],
       loopCount: 0,
       timestamp: new Date(),
     };
@@ -31,6 +32,7 @@ export function useChat() {
         role: "assistant",
         content: res.answer,
         sourceChunkIds: res.source_chunk_ids,
+        sources: res.sources ?? [],
         loopCount: res.loop_count,
         timestamp: new Date(),
       };

@@ -20,7 +20,7 @@ export function MessageBubble({ message }: Props) {
           {message.content}
         </div>
         {!isUser && (
-          <SourceCitations chunkIds={message.sourceChunkIds} loopCount={message.loopCount} />
+          <SourceCitations sources={message.sources} loopCount={message.loopCount} />
         )}
         <div className={`text-xs text-gray-400 mt-1 ${isUser ? "text-right" : "text-left"}`}>
           {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
