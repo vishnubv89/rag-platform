@@ -39,13 +39,11 @@ async def embed_batch(
     client = _get_client()
     loop = asyncio.get_event_loop()
 
-    # Gemini batch embed: pass list of Content objects
-    contents = [types.Content(parts=[types.Part(text=t)]) for t in texts]
     response = await loop.run_in_executor(
         None,
         lambda: client.models.embed_content(
             model=settings.embedding_model,
-            contents=contents,
+            contents=texts,
             config=types.EmbedContentConfig(
                 task_type=task_type,
                 output_dimensionality=settings.embedding_dim,

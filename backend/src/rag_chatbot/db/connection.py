@@ -40,10 +40,16 @@ async def run_schema() -> None:
     finally:
         await raw.close()
 
-    schema_sql = (Path(__file__).parent / "schema.sql").read_text()
     pool = await get_pool()
+    db_dir = Path(__file__).parent
+
+    # Base schema first, then migrations in alphabetical order (all idempotent)
+    sql_files = [db_dir / "schema.sql"] + sorted(
+        (db_dir / "migrations").glob("*.sql")
+    )
     async with pool.acquire() as conn:
-        await conn.execute(schema_sql)
+        for sql_file in sql_files:
+            await conn.execute(sql_file.read_text())
 
 
 if __name__ == "__main__":

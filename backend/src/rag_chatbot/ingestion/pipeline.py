@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ async def ingest_file(
             "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
             title,
             source or str(p),
-            metadata or {},
+            json.dumps(metadata or {}),
             org_id,
         )
         rows = [
@@ -67,7 +68,7 @@ async def ingest_text(
             "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
             title,
             source,
-            metadata or {},
+            json.dumps(metadata or {}),
             org_id,
         )
         rows = [
