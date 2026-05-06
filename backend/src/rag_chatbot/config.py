@@ -7,10 +7,17 @@ class Settings(BaseSettings):
     gemini_api_key: str
     database_url: str
 
-    # Gemini models
+    # LLM provider: "gemini" or "anthropic"
+    llm_provider: str = "gemini"
+
+    # Gemini
     llm_model: str = "gemini-2.0-flash"
     embedding_model: str = "models/gemini-embedding-001"
     embedding_dim: int = 768
+
+    # Anthropic (used when llm_provider="anthropic")
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
 
     # Retrieval
     retrieval_top_k: int = 8

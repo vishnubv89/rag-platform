@@ -5,37 +5,11 @@ Flow:
   router → retriever → grader → generator (pass)
                               ↘ rewriter → retriever (loop, max 3x)
 """
-import json
 import asyncio
-from google import genai
-from google.genai import types
 
-from rag_chatbot.config import settings
+from rag_chatbot.llm.client import generate as _generate
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.agent.state import AgentState
-
-_client: genai.Client | None = None
-
-
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=settings.gemini_api_key)
-    return _client
-
-
-def _generate(prompt: str, system: str = "") -> str:
-    client = _get_client()
-    config = types.GenerateContentConfig(
-        system_instruction=system or None,
-        temperature=0.0,
-    )
-    response = client.models.generate_content(
-        model=settings.llm_model,
-        contents=prompt,
-        config=config,
-    )
-    return response.text.strip()
 
 
 # ---------------------------------------------------------------------------
