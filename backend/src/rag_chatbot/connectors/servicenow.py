@@ -40,17 +40,13 @@ class ServiceNowConnector(BaseConnector):
             timeout=30,
         )
 
-    def _params(self) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "sysparm_fields": "sys_id,short_description,sys_updated_on,kb_knowledge_base,workflow_state",
-            "sysparm_query": "workflow_state=published",
-            "sysparm_limit": 1000,
-        }
+    def _base_query(self) -> str:
+        q = "workflow_state=published"
         if self.config.get("kb_sys_id"):
-            params["sysparm_query"] += f"^kb_knowledge_base={self.config['kb_sys_id']}"
+            q += f"^kb_knowledge_base={self.config['kb_sys_id']}"
         if self.config.get("category"):
-            params["sysparm_query"] += f"^kb_category={self.config['category']}"
-        return params
+            q += f"^kb_category={self.config['category']}"
+        return q
 
     async def validate_config(self) -> tuple[bool, str]:
         required = ["instance_url", "username", "password"]
@@ -61,7 +57,7 @@ class ServiceNowConnector(BaseConnector):
             async with self._client() as client:
                 r = await client.get(
                     "/api/now/table/kb_knowledge",
-                    params={"sysparm_limit": 1},
+                    params={"sysparm_limit": 1, "sysparm_query": self._base_query()},
                 )
                 r.raise_for_status()
             return True, ""
@@ -69,19 +65,34 @@ class ServiceNowConnector(BaseConnector):
             return False, str(e)
 
     async def list_documents(self) -> list[RemoteDocument]:
+        PAGE = 200
+        docs: list[RemoteDocument] = []
+        base_params = {
+            "sysparm_fields": "sys_id,short_description,sys_updated_on",
+            "sysparm_query": self._base_query(),
+            "sysparm_limit": PAGE,
+        }
         async with self._client() as client:
-            r = await client.get("/api/now/table/kb_knowledge", params=self._params())
-            r.raise_for_status()
-            results = r.json().get("result", [])
-
-        docs = []
-        for item in results:
-            docs.append(RemoteDocument(
-                external_id=item["sys_id"],
-                title=item.get("short_description", "Untitled"),
-                source_url=f"{self.config['instance_url'].rstrip('/')}/kb_view.do?sys_kb_id={item['sys_id']}",
-                updated_at=item.get("sys_updated_on", ""),
-            ))
+            offset = 0
+            while True:
+                r = await client.get(
+                    "/api/now/table/kb_knowledge",
+                    params={**base_params, "sysparm_offset": offset},
+                )
+                r.raise_for_status()
+                result = r.json().get("result", [])
+                # ServiceNow returns a dict (not a list) when exactly one record matches
+                page = [result] if isinstance(result, dict) else result
+                for item in page:
+                    docs.append(RemoteDocument(
+                        external_id=item["sys_id"],
+                        title=item.get("short_description", "Untitled"),
+                        source_url=f"{self.config['instance_url'].rstrip('/')}/kb_view.do?sys_kb_id={item['sys_id']}",
+                        updated_at=item.get("sys_updated_on", ""),
+                    ))
+                if len(page) < PAGE:
+                    break
+                offset += PAGE
         return docs
 
     async def fetch_document(self, external_id: str) -> ConnectorDocument:
@@ -91,7 +102,9 @@ class ServiceNowConnector(BaseConnector):
                 params={"sysparm_fields": "sys_id,short_description,text,sys_updated_on"},
             )
             r.raise_for_status()
-            item = r.json()["result"]
+            result = r.json()["result"]
+            # Single-record endpoint always returns a dict, but normalise defensively
+            item = result[0] if isinstance(result, list) else result
 
         text = _strip_html(item.get("text") or "")
         return ConnectorDocument(

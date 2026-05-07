@@ -37,7 +37,7 @@ async def intent_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 async def retriever_node(state: AgentState) -> dict:
-    docs = await hybrid_search(state["query"])
+    docs = await hybrid_search(state["query"], org_id=state.get("org_id"))
     return {"retrieved_docs": docs}
 
 

@@ -43,8 +43,8 @@ async def document_detail(request: Request, doc_id: int):
 
 
 @router.post("/documents/{doc_id}/delete")
-async def delete_document(doc_id: int, org_id: int | None = None):
-    await client.delete_doc(doc_id)
+async def delete_document(doc_id: int, org_id: int | None = Form(None)):
+    await client.delete_doc(doc_id, org_id=org_id)
     redirect = f"/documents?org_id={org_id}" if org_id else "/documents"
     return RedirectResponse(redirect, status_code=303)
 

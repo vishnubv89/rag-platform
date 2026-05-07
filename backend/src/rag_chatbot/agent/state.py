@@ -32,3 +32,6 @@ class AgentState(TypedDict):
 
     # Runtime LLM config from app_config table (overrides env defaults)
     llm_config: dict
+
+    # Org that owns this session — retrieval is scoped to this org
+    org_id: int | None

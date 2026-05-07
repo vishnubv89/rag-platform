@@ -46,19 +46,20 @@ SELECT
     d.source AS doc_source
 FROM fused f
 JOIN documents d ON d.id = f.doc_id
+WHERE ($4::bigint IS NULL OR d.org_id = $4)
 ORDER BY f.rrf_score DESC
 LIMIT $3
 """
 
 
-async def hybrid_search(query: str, top_k: int | None = None) -> list[dict]:
+async def hybrid_search(query: str, top_k: int | None = None, org_id: int | None = None) -> list[dict]:
     """BM25 + semantic search fused via Reciprocal Rank Fusion."""
     k = top_k or settings.retrieval_top_k
     query_embedding = await embed_text(query, task_type="RETRIEVAL_QUERY")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_HYBRID_SQL, query, query_embedding, k)
+        rows = await conn.fetch(_HYBRID_SQL, query, query_embedding, k, org_id)
 
     return [
         {

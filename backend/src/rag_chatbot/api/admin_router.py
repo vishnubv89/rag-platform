@@ -219,10 +219,15 @@ async def get_doc(doc_id: int):
 
 
 @router.delete("/docs/{doc_id}", status_code=204)
-async def delete_doc(doc_id: int):
+async def delete_doc(doc_id: int, org_id: int | None = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM documents WHERE id=$1", doc_id)
+        oid = await _resolve_org(org_id, conn)
+        deleted = await conn.execute(
+            "DELETE FROM documents WHERE id=$1 AND org_id=$2", doc_id, oid
+        )
+        if deleted == "DELETE 0":
+            raise HTTPException(status_code=404, detail="Document not found in this org")
 
 
 class TextIngestBody(BaseModel):
@@ -525,13 +530,14 @@ async def get_connector_detail(connector_id: int):
 
 
 @router.patch("/connectors/{connector_id}")
-async def patch_connector(connector_id: int, body: ConnectorPatch):
+async def patch_connector(connector_id: int, body: ConnectorPatch, org_id: int | None = Query(None)):
     pool = await get_pool()
     import json as _json
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM connectors WHERE id=$1", connector_id)
+        oid = await _resolve_org(org_id, conn)
+        row = await conn.fetchrow("SELECT * FROM connectors WHERE id=$1 AND org_id=$2", connector_id, oid)
         if not row:
-            raise HTTPException(status_code=404, detail="Connector not found")
+            raise HTTPException(status_code=404, detail="Connector not found in this org")
         if body.name is not None:
             await conn.execute("UPDATE connectors SET name=$1, updated_at=now() WHERE id=$2", body.name, connector_id)
         if body.config is not None:
@@ -548,10 +554,15 @@ async def patch_connector(connector_id: int, body: ConnectorPatch):
 
 
 @router.delete("/connectors/{connector_id}", status_code=204)
-async def delete_connector(connector_id: int):
+async def delete_connector(connector_id: int, org_id: int | None = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM connectors WHERE id=$1", connector_id)
+        oid = await _resolve_org(org_id, conn)
+        deleted = await conn.execute(
+            "DELETE FROM connectors WHERE id=$1 AND org_id=$2", connector_id, oid
+        )
+        if deleted == "DELETE 0":
+            raise HTTPException(status_code=404, detail="Connector not found in this org")
 
 
 @router.post("/connectors/{connector_id}/sync")
@@ -621,17 +632,20 @@ class ConflictResolve(BaseModel):
 
 
 @router.patch("/knowledge/conflicts/{conflict_id}")
-async def resolve_conflict(conflict_id: int, body: ConflictResolve):
+async def resolve_conflict(conflict_id: int, body: ConflictResolve, org_id: int | None = Query(None)):
     if body.status not in ("resolved", "dismissed"):
         raise HTTPException(status_code=400, detail="status must be 'resolved' or 'dismissed'")
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
+        oid = await _resolve_org(org_id, conn)
+        updated = await conn.execute(
             """UPDATE knowledge_conflicts
                SET status=$1, resolved_doc_id=$2, resolved_at=now()
-               WHERE id=$3""",
-            body.status, body.resolved_doc_id, conflict_id,
+               WHERE id=$3 AND org_id=$4""",
+            body.status, body.resolved_doc_id, conflict_id, oid,
         )
+        if updated == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="Conflict not found in this org")
     return {"id": conflict_id, "status": body.status}
 
 

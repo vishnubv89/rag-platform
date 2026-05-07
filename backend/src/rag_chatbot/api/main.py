@@ -93,6 +93,7 @@ async def chat(req: ChatRequest):
         "sources": [],
         "skip_retrieval": False,
         "llm_config": {},
+        "org_id": None,
     }
     # Fetch org config to drive provider/model selection at runtime
     pool = await get_pool()
@@ -107,7 +108,7 @@ async def chat(req: ChatRequest):
 
     t0 = time.monotonic()
     try:
-        final_state = await rag_graph.ainvoke(initial_state | {"llm_config": llm_config})
+        final_state = await rag_graph.ainvoke(initial_state | {"llm_config": llm_config, "org_id": org_id})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     latency_ms = int((time.monotonic() - t0) * 1000)

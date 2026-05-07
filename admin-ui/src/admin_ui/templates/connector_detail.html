@@ -3,24 +3,27 @@
 
 {% block content %}
 <div class="d-flex align-items-center gap-2 mb-4">
-  <a href="/connectors" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  <a href="/connectors{% if active_org_id %}?org_id={{ active_org_id }}{% endif %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
   <div>
     <h4 class="mb-0 fw-bold">{{ connector.name }}</h4>
     <span class="text-muted small">{{ connector.connector_type }} connector</span>
   </div>
   <div class="ms-auto d-flex gap-2">
     <form action="/connectors/{{ connector.id }}/sync" method="post">
+      <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
       <button class="btn btn-sm btn-primary" {% if not connector.is_active %}disabled{% endif %}>
         <i class="bi bi-arrow-repeat me-1"></i>Sync Now
       </button>
     </form>
     <form action="/connectors/{{ connector.id }}/toggle" method="post">
       <input type="hidden" name="is_active" value="{{ 'false' if connector.is_active else 'true' }}">
+      <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
       <button class="btn btn-sm btn-outline-secondary">
         {% if connector.is_active %}<i class="bi bi-pause-circle me-1"></i>Pause{% else %}<i class="bi bi-play-circle me-1"></i>Resume{% endif %}
       </button>
     </form>
     <form action="/connectors/{{ connector.id }}/delete" method="post" onsubmit="return confirm('Delete this connector and all its synced documents?')">
+      <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
       <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
     </form>
   </div>

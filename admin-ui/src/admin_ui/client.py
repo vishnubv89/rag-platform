@@ -16,33 +16,49 @@ def get_client() -> httpx.AsyncClient:
     return _client
 
 
+def _raise(r: httpx.Response) -> None:
+    """Raise with the backend's detail message instead of the raw HTTP error."""
+    if r.is_error:
+        try:
+            detail = r.json().get("detail", r.text)
+        except Exception:
+            detail = r.text or r.reason_phrase
+        raise Exception(detail)
+
+
 async def _get(path: str, **params) -> dict | list:
     r = await get_client().get(path, params={k: v for k, v in params.items() if v is not None})
-    r.raise_for_status()
+    _raise(r)
     return r.json()
 
 
 async def _post(path: str, json: dict | None = None, **kwargs) -> dict:
     r = await get_client().post(path, json=json, **kwargs)
-    r.raise_for_status()
-    return r.json()
+    _raise(r)
+    try:
+        return r.json()
+    except Exception:
+        return {}
 
 
 async def _put(path: str, json: dict) -> dict:
     r = await get_client().put(path, json=json)
-    r.raise_for_status()
+    _raise(r)
     return r.json()
 
 
-async def _patch(path: str, json: dict) -> dict:
-    r = await get_client().patch(path, json=json)
-    r.raise_for_status()
-    return r.json()
+async def _patch(path: str, json: dict, **params) -> dict:
+    r = await get_client().patch(path, json=json, params={k: v for k, v in params.items() if v is not None})
+    _raise(r)
+    try:
+        return r.json()
+    except Exception:
+        return {}
 
 
-async def _delete(path: str) -> None:
-    r = await get_client().delete(path)
-    r.raise_for_status()
+async def _delete(path: str, **params) -> None:
+    r = await get_client().delete(path, params={k: v for k, v in params.items() if v is not None})
+    _raise(r)
 
 
 # ── Orgs ──────────────────────────────────────────────────────────────────────
@@ -83,8 +99,8 @@ async def list_docs(org_id: int | None = None, page: int = 1, limit: int = 20) -
 async def get_doc(doc_id: int) -> dict:
     return await _get(f"/admin/docs/{doc_id}")
 
-async def delete_doc(doc_id: int) -> None:
-    await _delete(f"/admin/docs/{doc_id}")
+async def delete_doc(doc_id: int, org_id: int | None = None) -> None:
+    await _delete(f"/admin/docs/{doc_id}", org_id=org_id)
 
 async def ingest_text(title: str, text: str, source: str, org_id: int | None) -> dict:
     return await _post(
@@ -133,11 +149,11 @@ async def create_connector(name: str, connector_type: str, config: dict, sync_in
 async def get_connector(connector_id: int) -> dict:
     return await _get(f"/admin/connectors/{connector_id}")
 
-async def patch_connector(connector_id: int, **fields) -> dict:
-    return await _patch(f"/admin/connectors/{connector_id}", json=fields)
+async def patch_connector(connector_id: int, org_id: int | None = None, **fields) -> dict:
+    return await _patch(f"/admin/connectors/{connector_id}", json=fields, org_id=org_id)
 
-async def delete_connector(connector_id: int) -> None:
-    await _delete(f"/admin/connectors/{connector_id}")
+async def delete_connector(connector_id: int, org_id: int | None = None) -> None:
+    await _delete(f"/admin/connectors/{connector_id}", org_id=org_id)
 
 async def trigger_sync(connector_id: int) -> dict:
     return await _post(f"/admin/connectors/{connector_id}/sync")

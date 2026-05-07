@@ -102,7 +102,8 @@ async def run_sync(connector_id: int) -> dict:
     stats = {"docs_added": 0, "docs_updated": 0, "docs_deleted": 0, "error": None}
 
     try:
-        connector = get_connector(row["connector_type"], row["config"])
+        config = json.loads(row["config"]) if isinstance(row["config"], str) else row["config"]
+        connector = get_connector(row["connector_type"], config)
 
         async with pool.acquire() as conn:
             existing = await _existing_hashes(conn, connector_id)
