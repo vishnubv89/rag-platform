@@ -1,10 +1,17 @@
 import type { ChatMessage, ChatResponse, DocDetail, DocListResponse, IngestResponse, Org } from "../types";
+import { useAuthStore } from "../store/authStore";
 
-const BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+
+function authHeaders(): Record<string, string> {
+  const token = useAuthStore.getState().accessToken;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...init?.headers },
+    credentials: "include",
     ...init,
   });
   if (!res.ok) {
@@ -93,6 +100,21 @@ export async function getTopicGraph(orgId: number | null, days = 30) {
     nodes: { id: number; title: string; source: string; citations: number }[];
     edges: { source: number; target: number; weight: number }[];
   }>(`/admin/analytics/topic-graph?${p}`, { headers: ADMIN_HEADERS });
+}
+
+export async function getConfig(orgId: number | null): Promise<Record<string, string>> {
+  const p = new URLSearchParams();
+  if (orgId) p.set("org_id", String(orgId));
+  const data = await request<{ config: Record<string, string> }>(`/admin/config?${p}`, { headers: ADMIN_HEADERS });
+  return data.config;
+}
+
+export async function saveConfig(orgId: number | null, settings: Record<string, string>): Promise<void> {
+  await request("/admin/config", {
+    method: "PUT",
+    headers: ADMIN_HEADERS,
+    body: JSON.stringify({ org_id: orgId, settings }),
+  });
 }
 
 export async function getSuggestion(

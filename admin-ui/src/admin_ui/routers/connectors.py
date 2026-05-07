@@ -7,19 +7,20 @@ import admin_ui.client as api
 router = APIRouter()
 
 CONFIG_FIELDS = {
-    "servicenow": ["instance_url", "username", "password", "kb_sys_id"],
+    "servicenow": ["instance_url", "username", "password", "kb_sys_id", "ingest_incidents"],
     "sharepoint": ["tenant_id", "client_id", "client_secret", "site_url", "folder_path"],
     "confluence": ["base_url", "username", "api_token", "space_key"],
-    "manual": [],
 }
+
+_HIDDEN_TYPES = {"manual"}
 
 
 @router.get("/connectors")
 async def connectors_page(request: Request, org_id: int | None = None):
     templates = request.app.state.templates
     try:
-        connectors = await api.list_connectors(org_id=org_id)
-        types = await api.connector_types()
+        connectors = [c for c in await api.list_connectors(org_id=org_id) if c.get("connector_type") not in _HIDDEN_TYPES]
+        types = [t for t in await api.connector_types() if t not in _HIDDEN_TYPES]
         orgs = await api.list_orgs()
         error = None
     except Exception as e:
@@ -56,8 +57,8 @@ async def create_connector(
         )
     except Exception as e:
         templates = request.app.state.templates
-        connectors = await api.list_connectors(org_id=org_id)
-        types = await api.connector_types()
+        connectors = [c for c in await api.list_connectors(org_id=org_id) if c.get("connector_type") not in _HIDDEN_TYPES]
+        types = [t for t in await api.connector_types() if t not in _HIDDEN_TYPES]
         orgs = await api.list_orgs()
         return templates.TemplateResponse(request, "connectors.html", {
             "connectors": connectors,

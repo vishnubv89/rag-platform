@@ -241,7 +241,7 @@ export function Analytics() {
         </div>
 
         {/* Summary cards */}
-        <div className="grid grid-cols-2 gap-4" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card label="Total queries" value={fmt(summary?.total_chats)} />
           <Card label="Avg latency" value={fmt(summary?.avg_latency_ms, "ms")} />
           <Card label="Prompt tokens" value={fmt(summary?.total_prompt_tokens)} />

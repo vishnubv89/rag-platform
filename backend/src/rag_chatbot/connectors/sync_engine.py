@@ -130,9 +130,46 @@ async def run_sync(connector_id: int) -> dict:
                     await conn.execute("DELETE FROM documents WHERE id=$1", doc_id)
                     stats["docs_deleted"] += 1
 
+        # For ServiceNow connectors with incident ingestion enabled, run incident pipeline
+        if (row["connector_type"] == "servicenow"
+                and config.get("ingest_incidents", "").lower() == "true"):
+            from rag_chatbot.connectors.incident_processor import process_incidents
+
+            # Fetch org's LLM config for article generation
+            llm_config: dict = {}
+            async with pool.acquire() as conn:
+                cfg_rows = await conn.fetch(
+                    "SELECT key, value FROM app_config WHERE org_id=$1", row["org_id"]
+                )
+                for r in cfg_rows:
+                    llm_config[r["key"]] = r["value"]
+
+            inc_stats = await process_incidents(
+                pool=pool,
+                connector_id=connector_id,
+                org_id=row["org_id"],
+                config=config,
+                llm_config=llm_config,
+            )
+            log.info(
+                "Incident processing done for connector %d: %s", connector_id, inc_stats
+            )
+            if inc_stats.get("error") and not stats.get("error"):
+                stats["error"] = f"incident_processor: {inc_stats['error']}"
+            stats["incident_stats"] = inc_stats
+
         status = "success"
-        message = (f"✓ +{stats['docs_added']} updated:{stats['docs_updated']} "
-                   f"deleted:{stats['docs_deleted']}")
+        inc = stats.get("incident_stats")
+        incident_part = (
+            f" | incidents: {inc['incidents_processed']} processed, "
+            f"{inc['clusters_created']} articles created, "
+            f"{inc['clusters_updated']} updated"
+            if inc else ""
+        )
+        message = (
+            f"✓ KB: +{stats['docs_added']} updated:{stats['docs_updated']} "
+            f"deleted:{stats['docs_deleted']}{incident_part}"
+        )
     except Exception as exc:
         log.exception("Sync failed for connector %d", connector_id)
         stats["error"] = str(exc)

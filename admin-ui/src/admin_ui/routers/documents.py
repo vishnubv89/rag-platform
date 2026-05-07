@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Form
+from fastapi import APIRouter, Request, Form, UploadFile, File
 from fastapi.responses import RedirectResponse
 from admin_ui import client
 
@@ -46,6 +46,18 @@ async def document_detail(request: Request, doc_id: int):
 async def delete_document(doc_id: int, org_id: int | None = Form(None)):
     await client.delete_doc(doc_id, org_id=org_id)
     redirect = f"/documents?org_id={org_id}" if org_id else "/documents"
+    return RedirectResponse(redirect, status_code=303)
+
+
+@router.post("/documents/ingest-file")
+async def ingest_file_document(
+    file: UploadFile = File(...),
+    org_id: str | None = Form(None),
+):
+    org_id_int = int(org_id) if org_id else None
+    content = await file.read()
+    await client.ingest_file_upload(filename=file.filename or "upload", content=content, org_id=org_id_int)
+    redirect = f"/documents?org_id={org_id_int}" if org_id_int else "/documents"
     return RedirectResponse(redirect, status_code=303)
 
 

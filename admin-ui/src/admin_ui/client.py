@@ -11,7 +11,7 @@ def get_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(
             base_url=settings.backend_url,
             headers={"X-Admin-Key": settings.admin_secret_key},
-            timeout=30.0,
+            timeout=httpx.Timeout(10.0, read=300.0),
         )
     return _client
 
@@ -102,6 +102,17 @@ async def get_doc(doc_id: int) -> dict:
 async def delete_doc(doc_id: int, org_id: int | None = None) -> None:
     await _delete(f"/admin/docs/{doc_id}", org_id=org_id)
 
+async def ingest_file_upload(filename: str, content: bytes, org_id: int | None) -> dict:
+    params = {"org_id": org_id} if org_id else {}
+    r = await get_client().post(
+        "/admin/docs/ingest/file",
+        files={"file": (filename, content)},
+        params=params,
+    )
+    _raise(r)
+    return r.json()
+
+
 async def ingest_text(title: str, text: str, source: str, org_id: int | None) -> dict:
     return await _post(
         "/admin/docs/ingest/text",
@@ -175,3 +186,21 @@ async def resolve_conflict(conflict_id: int, status: str, resolved_doc_id: int |
 
 async def stale_documents(org_id: int | None = None, days: int = 90) -> list:
     return await _get("/admin/knowledge/stale", org_id=org_id, days=days)
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+async def list_users(org_id: int | None = None) -> list:
+    return await _get("/admin/users", org_id=org_id)
+
+async def create_user(email: str, name: str, password: str, role: str, org_id: int | None) -> dict:
+    return await _post("/admin/users", json={
+        "email": email, "name": name, "password": password,
+        "role": role, "org_id": org_id,
+    })
+
+async def patch_user(user_id: int, **fields) -> dict:
+    return await _patch(f"/admin/users/{user_id}", json=fields)
+
+async def delete_user(user_id: int) -> None:
+    await _delete(f"/admin/users/{user_id}")

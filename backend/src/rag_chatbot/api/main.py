@@ -4,7 +4,7 @@ import tempfile
 import time
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -13,6 +13,8 @@ from rag_chatbot.db.connection import run_schema, close_pool, get_pool
 from rag_chatbot.agent.graph import rag_graph
 from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
 from rag_chatbot.api.admin_router import router as admin_router
+from rag_chatbot.api.deps import require_user
+from rag_chatbot.auth.router import router as auth_router
 from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.llm.client import generate as llm_generate
@@ -42,6 +44,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
 
 
@@ -91,7 +94,8 @@ class IngestResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, request: Request):
+    user = await require_user(request)
     session_id = req.session_id or str(uuid4())
     messages = req.history + [{"role": "user", "content": req.message}]
     initial_state = {
@@ -131,8 +135,8 @@ async def chat(req: ChatRequest):
                 """
                 INSERT INTO chat_logs
                     (org_id, session_id, user_message, assistant_response,
-                     source_chunk_ids, loop_count, latency_ms)
-                VALUES ($1,$2,$3,$4,$5,$6,$7)
+                     source_chunk_ids, loop_count, latency_ms, user_id)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
                 """,
                 org_id,
                 UUID(session_id),
@@ -141,6 +145,7 @@ async def chat(req: ChatRequest):
                 final_state["source_chunk_ids"],
                 final_state["loop_count"],
                 latency_ms,
+                user["id"],
             )
 
     return ChatResponse(
@@ -163,7 +168,8 @@ _SUGGEST_SYSTEM = (
 
 
 @app.post("/suggest", response_model=SuggestResponse)
-async def suggest(req: SuggestRequest):
+async def suggest(req: SuggestRequest, request: Request):
+    await require_user(request)
     import asyncio
     pool = await get_pool()
     async with pool.acquire() as conn:

@@ -15,25 +15,46 @@
 
 <!-- Ingest form -->
 <div class="card stat-card mb-4">
-  <div class="card-header bg-white fw-semibold">Ingest New Document</div>
+  <div class="card-header bg-white fw-semibold d-flex align-items-center gap-0 p-0">
+    <button class="btn btn-sm fw-semibold px-3 py-2 rounded-0 border-0 border-bottom border-2 border-primary text-primary" id="tabText" onclick="switchTab('text')">Paste text</button>
+    <button class="btn btn-sm fw-semibold px-3 py-2 rounded-0 border-0 text-muted" id="tabFile" onclick="switchTab('file')">Upload file</button>
+  </div>
   <div class="card-body">
-    <form method="post" action="/documents/ingest">
-      <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
-      <div class="row g-2">
-        <div class="col-md-4">
-          <input class="form-control form-control-sm" name="title" placeholder="Title" required>
+    <!-- Paste text -->
+    <div id="panelText">
+      <form method="post" action="/documents/ingest">
+        <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
+        <div class="row g-2">
+          <div class="col-md-4">
+            <input class="form-control form-control-sm" name="title" placeholder="Title" required>
+          </div>
+          <div class="col-md-4">
+            <input class="form-control form-control-sm" name="source" placeholder="Source URL (optional)">
+          </div>
+          <div class="col-12">
+            <textarea class="form-control form-control-sm" name="text" rows="4" placeholder="Paste document text here…" required></textarea>
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-sm btn-primary">Ingest</button>
+          </div>
         </div>
-        <div class="col-md-4">
-          <input class="form-control form-control-sm" name="source" placeholder="Source URL (optional)">
+      </form>
+    </div>
+    <!-- Upload file -->
+    <div id="panelFile" style="display:none">
+      <form method="post" action="/documents/ingest-file" enctype="multipart/form-data">
+        <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-8">
+            <label class="form-label form-label-sm text-muted mb-1">File <span class="text-muted small">(PDF, TXT, MD)</span></label>
+            <input class="form-control form-control-sm" type="file" name="file" accept=".pdf,.txt,.md" required>
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-sm btn-primary">Upload &amp; ingest</button>
+          </div>
         </div>
-        <div class="col-12">
-          <textarea class="form-control form-control-sm" name="text" rows="4" placeholder="Paste document text here…" required></textarea>
-        </div>
-        <div class="col-auto">
-          <button class="btn btn-sm btn-primary">Ingest</button>
-        </div>
-      </div>
-    </form>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -48,7 +69,12 @@
       {% for d in docs['items'] %}
       <tr>
         <td class="text-muted">{{ d.id }}</td>
-        <td><a href="/documents/{{ d.id }}">{{ d.title }}</a></td>
+        <td>
+          <a href="/documents/{{ d.id }}">{{ d.title }}</a>
+          {% if d.doc_source == 'servicenow_incidents' %}
+          <span class="badge ms-1" style="font-size:.6rem;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe">Incidents</span>
+          {% endif %}
+        </td>
         <td class="text-muted small">{{ (d.source or '')[:40] }}</td>
         <td>{{ d.chunk_count }}</td>
         <td class="text-muted small">{{ d.created_at[:10] if d.created_at else '' }}</td>
@@ -75,4 +101,14 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+function switchTab(tab) {
+  document.getElementById('panelText').style.display = tab === 'text' ? '' : 'none';
+  document.getElementById('panelFile').style.display = tab === 'file' ? '' : 'none';
+  document.getElementById('tabText').className = 'btn btn-sm fw-semibold px-3 py-2 rounded-0 border-0 ' + (tab === 'text' ? 'border-bottom border-2 border-primary text-primary' : 'text-muted');
+  document.getElementById('tabFile').className = 'btn btn-sm fw-semibold px-3 py-2 rounded-0 border-0 ' + (tab === 'file' ? 'border-bottom border-2 border-primary text-primary' : 'text-muted');
+}
+</script>
 {% endblock %}

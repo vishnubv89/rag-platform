@@ -187,7 +187,7 @@ async def list_docs(
         oid = await _resolve_org(org_id, conn)
         rows = await conn.fetch(
             """
-            SELECT d.id, d.title, d.source, d.created_at,
+            SELECT d.id, d.title, d.source, d.created_at, d.metadata,
                    COUNT(c.id) AS chunk_count
             FROM   documents d
             LEFT JOIN chunks c ON c.doc_id = d.id
@@ -199,7 +199,21 @@ async def list_docs(
             oid, limit, offset,
         )
         total = await conn.fetchval("SELECT COUNT(*) FROM documents WHERE org_id=$1", oid)
-    return {"total": total, "page": page, "limit": limit, "items": [dict(r) for r in rows]}
+
+    def _row(r):
+        d = dict(r)
+        meta = d.get("metadata") or {}
+        if isinstance(meta, str):
+            import json as _json
+            try:
+                meta = _json.loads(meta)
+            except Exception:
+                meta = {}
+        d["doc_source"] = meta.get("source", "")
+        d["cluster_key"] = meta.get("cluster_key", "")
+        return d
+
+    return {"total": total, "page": page, "limit": limit, "items": [_row(r) for r in rows]}
 
 
 @router.get("/docs/search")
@@ -778,3 +792,88 @@ async def stale_documents(
             oid, str(days), limit,
         )
     return [dict(r) for r in rows]
+
+
+# ─────────────────────────────────────────────
+# Users
+# ─────────────────────────────────────────────
+
+class UserCreate(BaseModel):
+    email: str
+    name: str
+    password: str
+    role: str = "member"
+    org_id: int | None = None
+
+class UserPatch(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    org_id: int | None = None
+    is_active: bool | None = None
+    password: str | None = None
+
+
+@router.get("/users")
+async def list_users(org_id: int | None = Query(None)):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if org_id is not None:
+            rows = await conn.fetch(
+                """SELECT u.id, u.email, u.name, u.role, u.org_id, u.is_active,
+                          u.created_at, u.last_login_at, o.name AS org_name
+                   FROM users u LEFT JOIN organizations o ON o.id = u.org_id
+                   WHERE u.org_id=$1 ORDER BY u.created_at DESC""", org_id
+            )
+        else:
+            rows = await conn.fetch(
+                """SELECT u.id, u.email, u.name, u.role, u.org_id, u.is_active,
+                          u.created_at, u.last_login_at, o.name AS org_name
+                   FROM users u LEFT JOIN organizations o ON o.id = u.org_id
+                   ORDER BY u.created_at DESC"""
+            )
+    return [dict(r) for r in rows]
+
+
+@router.post("/users", status_code=201)
+async def create_user(body: UserCreate):
+    from rag_chatbot.auth.password import hash_password
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchval("SELECT id FROM users WHERE email=$1", body.email)
+        if existing:
+            raise HTTPException(status_code=409, detail="Email already registered")
+        user_id = await conn.fetchval(
+            """INSERT INTO users (email, name, password_hash, role, org_id)
+               VALUES ($1,$2,$3,$4,$5) RETURNING id""",
+            body.email, body.name, hash_password(body.password), body.role, body.org_id,
+        )
+    return {"id": user_id, "email": body.email}
+
+
+@router.patch("/users/{user_id}")
+async def update_user(user_id: int, body: UserPatch):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM users WHERE id=$1", user_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        if body.name is not None:
+            await conn.execute("UPDATE users SET name=$1 WHERE id=$2", body.name, user_id)
+        if body.role is not None:
+            await conn.execute("UPDATE users SET role=$1 WHERE id=$2", body.role, user_id)
+        if body.org_id is not None:
+            await conn.execute("UPDATE users SET org_id=$1 WHERE id=$2", body.org_id, user_id)
+        if body.is_active is not None:
+            await conn.execute("UPDATE users SET is_active=$1 WHERE id=$2", body.is_active, user_id)
+        if body.password is not None:
+            from rag_chatbot.auth.password import hash_password
+            await conn.execute("UPDATE users SET password_hash=$1 WHERE id=$2",
+                               hash_password(body.password), user_id)
+    return {"id": user_id}
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(user_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM users WHERE id=$1", user_id)

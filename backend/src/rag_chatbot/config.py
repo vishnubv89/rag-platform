@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # Gemini
     llm_model: str = "gemini-2.0-flash"
-    embedding_model: str = "models/gemini-embedding-001"
+    embedding_model: str = "models/gemini-embedding-2"
     embedding_dim: int = 768
 
     # Anthropic (used when llm_provider="anthropic")
@@ -41,6 +41,11 @@ class Settings(BaseSettings):
         "http://localhost:8080",
     ]
     app_env: str = "development"
+
+    # Auth / JWT
+    jwt_secret: str = "change-me-jwt-secret"
+    jwt_access_expire_minutes: int = 15
+    jwt_refresh_expire_days: int = 7
 
 
 settings = Settings()

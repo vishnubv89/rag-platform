@@ -117,6 +117,16 @@
               <div class="col-md-6"><label class="form-label small">Username</label><input class="form-control form-control-sm" name="config_username"></div>
               <div class="col-md-6"><label class="form-label small">Password / API Token</label><input class="form-control form-control-sm" type="password" name="config_password"></div>
               <div class="col-md-12"><label class="form-label small">Knowledge Base sys_id (optional)</label><input class="form-control form-control-sm" name="config_kb_sys_id" placeholder="Leave blank to pull all published articles"></div>
+              <div class="col-md-12 mt-1">
+                <div class="form-check">
+                  <input type="hidden" name="config_ingest_incidents" value="false">
+                  <input class="form-check-input" type="checkbox" name="config_ingest_incidents" value="true" id="chk_ingest_incidents">
+                  <label class="form-check-label small" for="chk_ingest_incidents">
+                    Ingest closed incidents as KB articles
+                    <span class="text-muted">(groups resolved incidents by topic and generates knowledge articles)</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -143,11 +153,6 @@
             </div>
           </div>
 
-          <!-- Manual: no extra fields -->
-          <div id="fields_manual" class="config-fields d-none">
-            <hr>
-            <p class="text-muted small">Manual connectors accept documents via file upload and text ingest — no external credentials needed.</p>
-          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
