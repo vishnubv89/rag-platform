@@ -34,6 +34,15 @@ async def verify_admin_key(x_admin_key: str = Header(...)) -> str:
     return x_admin_key
 
 
+def _decode_bearer(request: Request) -> dict:
+    """Decode Bearer token from request headers synchronously (no DB lookup)."""
+    from rag_chatbot.auth.tokens import decode_access_token
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise ValueError("No bearer token")
+    return decode_access_token(auth[7:])
+
+
 async def require_user(request: Request) -> dict:
     """Extract and validate Bearer token; return user dict."""
     auth = request.headers.get("Authorization", "")

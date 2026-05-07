@@ -204,3 +204,10 @@ async def patch_user(user_id: int, **fields) -> dict:
 
 async def delete_user(user_id: int) -> None:
     await _delete(f"/admin/users/{user_id}")
+
+
+# ── Audit Log ─────────────────────────────────────────────────────────────────
+
+async def list_audit(org_id: int | None = None, limit: int = 50, offset: int = 0) -> dict:
+    return await _get("/admin/audit", org_id=org_id, limit=limit, offset=offset)
+

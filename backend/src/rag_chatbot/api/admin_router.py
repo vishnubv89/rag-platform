@@ -13,6 +13,7 @@ import os
 import secrets
 import time
 from datetime import datetime, timezone
+from rag_chatbot.api.audit import log_action
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
@@ -273,6 +274,7 @@ async def delete_doc(doc_id: int, org_id: int | None = Query(None)):
         )
         if deleted == "DELETE 0":
             raise HTTPException(status_code=404, detail="Document not found in this org")
+    await log_action(org_id=oid, user_id=None, action="delete", resource="document", resource_id=doc_id)
 
 
 class TextIngestBody(BaseModel):
@@ -684,13 +686,18 @@ async def delete_connector(connector_id: int, org_id: int | None = Query(None)):
         )
         if deleted == "DELETE 0":
             raise HTTPException(status_code=404, detail="Connector not found in this org")
+    await log_action(org_id=oid, user_id=None, action="delete", resource="connector", resource_id=connector_id)
 
 
 @router.post("/connectors/{connector_id}/sync")
 async def trigger_sync(connector_id: int):
     import asyncio
     from rag_chatbot.connectors.sync_engine import run_sync
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT org_id FROM connectors WHERE id=$1", connector_id)
     asyncio.create_task(run_sync(connector_id))
+    await log_action(org_id=row["org_id"] if row else None, user_id=None, action="sync", resource="connector", resource_id=connector_id)
     return {"status": "sync triggered", "connector_id": connector_id}
 
 
@@ -847,6 +854,8 @@ async def create_user(body: UserCreate):
                VALUES ($1,$2,$3,$4,$5) RETURNING id""",
             body.email, body.name, hash_password(body.password), body.role, body.org_id,
         )
+    await log_action(org_id=body.org_id, user_id=None, action="create", resource="user",
+                     resource_id=user_id, detail={"email": body.email, "role": body.role})
     return {"id": user_id, "email": body.email}
 
 
@@ -876,4 +885,46 @@ async def update_user(user_id: int, body: UserPatch):
 async def delete_user(user_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT org_id, email FROM users WHERE id=$1", user_id)
         await conn.execute("DELETE FROM users WHERE id=$1", user_id)
+    await log_action(org_id=row["org_id"] if row else None, user_id=None, action="delete",
+                     resource="user", resource_id=user_id, detail={"email": row["email"] if row else ""})
+
+# ─────────────────────────────────────────────
+# Audit Log
+# ─────────────────────────────────────────────
+
+@router.get("/audit")
+async def list_audit(
+    org_id: int | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn) if org_id else None
+        where = "WHERE a.org_id=$1" if oid else ""
+        args = [oid] if oid else []
+        rows = await conn.fetch(
+            f"""
+            SELECT a.id, a.org_id, a.user_id, u.email AS user_email,
+                   a.action, a.resource, a.resource_id, a.detail, a.ip,
+                   a.created_at
+            FROM audit_logs a
+            LEFT JOIN users u ON u.id = a.user_id
+            {where}
+            ORDER BY a.created_at DESC
+            LIMIT {limit} OFFSET {offset}
+            """,
+            *args,
+        )
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM audit_logs a {where}", *args
+        )
+    return {
+        "total": total,
+        "items": [
+            {**dict(r), "detail": r["detail"] or {}, "created_at": str(r["created_at"])}
+            for r in rows
+        ],
+    }

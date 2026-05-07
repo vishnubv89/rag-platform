@@ -68,5 +68,34 @@ services:
       backend:
         condition: service_healthy
 
+  backup:
+    image: pgvector/pgvector:pg17
+    container_name: rag_backup
+    entrypoint: >
+      sh -c "
+        echo '[backup] service started, interval: $${BACKUP_INTERVAL_HOURS}h';
+        while true; do
+          sh /backup.sh;
+          sleep $$(( BACKUP_INTERVAL_HOURS * 3600 ));
+        done
+      "
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - backups:/backups
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: rag
+      PGPASSWORD: rag_secret
+      PGDATABASE: rag_db
+      BACKUP_DIR: /backups
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  backups:

@@ -6,6 +6,10 @@ from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from rag_chatbot.api.rate_limit import limiter, rate_limit_exceeded_handler
 from pydantic import BaseModel
 
 from rag_chatbot.config import settings
@@ -35,6 +39,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -94,6 +100,7 @@ class IngestResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 @app.post("/chat", response_model=ChatResponse)
+@limiter.limit("20/minute")
 async def chat(req: ChatRequest, request: Request):
     user = await require_user(request)
     session_id = req.session_id or str(uuid4())
@@ -168,6 +175,7 @@ _SUGGEST_SYSTEM = (
 
 
 @app.post("/suggest", response_model=SuggestResponse)
+@limiter.limit("30/minute")
 async def suggest(req: SuggestRequest, request: Request):
     await require_user(request)
     import asyncio
