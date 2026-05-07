@@ -27,15 +27,26 @@ export function SourceCitations({ sources, loopCount }: Props) {
         )}
       </summary>
       <div className="mt-1 flex flex-wrap gap-1">
-        {uniqueDocs.map((doc) => (
-          <span
-            key={doc.doc_id}
-            title={doc.doc_source || doc.doc_title}
-            className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs rounded-full border border-indigo-100 max-w-[220px] truncate"
-          >
-            {doc.doc_title || `Doc #${doc.doc_id}`}
-          </span>
-        ))}
+        {uniqueDocs.map((doc) => {
+          const label = doc.doc_title || `Doc #${doc.doc_id}`;
+          const className = "px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs rounded-full border border-indigo-100 max-w-[220px] truncate hover:bg-indigo-100 transition-colors";
+          return doc.doc_source ? (
+            <a
+              key={doc.doc_id}
+              href={doc.doc_source}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={doc.doc_source}
+              className={className}
+            >
+              {label}
+            </a>
+          ) : (
+            <span key={doc.doc_id} title={label} className={className}>
+              {label}
+            </span>
+          );
+        })}
       </div>
     </details>
   );

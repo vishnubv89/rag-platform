@@ -165,18 +165,6 @@ async def generator_node(state: AgentState) -> dict:
         for d in docs
     ]
 
-    if not skip and docs:
-        seen: set[str] = set()
-        citations: list[str] = []
-        for d in docs:
-            title = d.get("doc_title") or "Unknown"
-            url = d.get("doc_source") or ""
-            if title not in seen:
-                seen.add(title)
-                citations.append(f"[{title}]({url})" if url else title)
-        if citations:
-            answer = answer.rstrip() + "\n\n**Sources:** " + ", ".join(citations)
-
     return {
         "answer": answer,
         "source_chunk_ids": [d["chunk_id"] for d in docs],
