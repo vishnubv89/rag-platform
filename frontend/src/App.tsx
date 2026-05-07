@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { ComingSoon } from "./components/ComingSoon";
 import { KnowledgeHub } from "./components/KnowledgeHub";
+import { DocCreator } from "./components/DocCreator";
 import { OrgSelector } from "./components/OrgSelector";
 import { useChatStore } from "./store/chatStore";
 
@@ -73,14 +74,7 @@ function Portal() {
 
           {activeApp === "knowledge" && <KnowledgeHub />}
 
-          {activeApp === "creator" && (
-            <ComingSoon
-              icon="✏️"
-              name="Doc Creator"
-              description="AI-assisted document authoring with real-time suggestions grounded in your knowledge base."
-              features={["AI autocomplete", "RAG-powered suggestions", "Export to Confluence", "Export to SharePoint", "Rich text editing", "Conflict checker"]}
-            />
-          )}
+          {activeApp === "creator" && <DocCreator />}
 
           {activeApp === "search" && (
             <ComingSoon

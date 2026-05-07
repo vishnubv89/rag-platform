@@ -14,6 +14,8 @@ from rag_chatbot.agent.graph import rag_graph
 from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
 from rag_chatbot.api.admin_router import router as admin_router
 from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
+from rag_chatbot.retrieval.vector_store import hybrid_search
+from rag_chatbot.llm.client import generate as llm_generate
 
 
 @asynccontextmanager
@@ -60,6 +62,16 @@ class ChatResponse(BaseModel):
     sources: list[dict]
     loop_count: int
     session_id: str
+
+
+class SuggestRequest(BaseModel):
+    context: str
+    org_id: int | None = None
+
+
+class SuggestResponse(BaseModel):
+    suggestion: str
+    sources: list[dict]
 
 
 class IngestTextRequest(BaseModel):
@@ -138,6 +150,61 @@ async def chat(req: ChatRequest):
         loop_count=final_state["loop_count"],
         session_id=session_id,
     )
+
+
+_SUGGEST_SYSTEM = (
+    "You are a writing assistant helping a user draft a document. "
+    "Based on the writing context and the reference document chunks provided, "
+    "suggest the next paragraph or section that naturally continues the document. "
+    "Write in the same tone and style as the existing content. "
+    "Use only facts from the reference chunks — do not invent information. "
+    "Output only the suggested text, no preamble or explanation."
+)
+
+
+@app.post("/suggest", response_model=SuggestResponse)
+async def suggest(req: SuggestRequest):
+    import asyncio
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        org_id = req.org_id or await conn.fetchval(
+            "SELECT id FROM organizations WHERE slug='default'"
+        )
+        rows = await conn.fetch(
+            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
+        ) if org_id else []
+    llm_config = {r["key"]: r["value"] for r in rows}
+
+    query = req.context[-800:].strip()
+    try:
+        docs = await hybrid_search(query, top_k=5, org_id=org_id)
+    except Exception:
+        docs = []
+
+    if docs:
+        context_block = "\n\n".join(
+            f"[{d.get('doc_title','Unknown')}]\n{d['text']}" for d in docs
+        )
+        prompt = f"Document so far:\n{req.context}\n\nReference material:\n{context_block}"
+    else:
+        prompt = f"Document so far:\n{req.context}"
+
+    loop = asyncio.get_running_loop()
+    try:
+        suggestion = await loop.run_in_executor(
+            None, lambda: llm_generate(prompt, _SUGGEST_SYSTEM, llm_config)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    sources = [
+        {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
+        for d in docs
+    ]
+    seen: set[int] = set()
+    unique_sources = [s for s in sources if not (s["doc_id"] in seen or seen.add(s["doc_id"]))]  # type: ignore[func-returns-value]
+
+    return SuggestResponse(suggestion=suggestion, sources=unique_sources)
 
 
 @app.post("/ingest/text", response_model=IngestResponse)

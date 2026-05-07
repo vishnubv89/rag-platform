@@ -61,3 +61,13 @@ export async function searchDocs(q: string, orgId: number | null, limit = 20): P
 export async function getDoc(docId: number): Promise<DocDetail> {
   return request<DocDetail>(`/admin/docs/${docId}`, { headers: ADMIN_HEADERS });
 }
+
+export async function getSuggestion(
+  context: string,
+  orgId: number | null,
+): Promise<{ suggestion: string; sources: { doc_id: number; doc_title: string; doc_source: string }[] }> {
+  return request("/suggest", {
+    method: "POST",
+    body: JSON.stringify({ context, org_id: orgId }),
+  });
+}
