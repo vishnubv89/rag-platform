@@ -125,7 +125,8 @@ async def rewriter_node(state: AgentState) -> dict:
 
 _GENERATOR_SYSTEM = (
     "You are a helpful assistant that answers questions using ONLY the provided "
-    "document chunks. Cite sources by document name as [Source: document_title]. "
+    "document chunks. Write naturally and conversationally — do NOT include inline "
+    "citations, source labels, or chunk references in your answer. "
     "If the documents lack enough information, say so honestly."
 )
 
@@ -163,6 +164,18 @@ async def generator_node(state: AgentState) -> dict:
         }
         for d in docs
     ]
+
+    if not skip and docs:
+        seen: set[str] = set()
+        citations: list[str] = []
+        for d in docs:
+            title = d.get("doc_title") or "Unknown"
+            url = d.get("doc_source") or ""
+            if title not in seen:
+                seen.add(title)
+                citations.append(f"[{title}]({url})" if url else title)
+        if citations:
+            answer = answer.rstrip() + "\n\n**Sources:** " + ", ".join(citations)
 
     return {
         "answer": answer,
