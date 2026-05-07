@@ -10,12 +10,20 @@ export function OrgSelector() {
 
   return (
     <select
-      className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+      className="text-xs border rounded-lg px-2.5 py-1.5 focus:outline-none"
+      style={{
+        background: "#f7f7f8",
+        border: "1px solid #e8e8ea",
+        color: "#374151",
+        fontFamily: "inherit",
+      }}
       value={activeOrg?.id ?? ""}
       onChange={(e) => {
         const org = orgs.find((o) => o.id === Number(e.target.value)) ?? null;
         setOrg(org);
       }}
+      onFocus={(e) => { (e.currentTarget as HTMLSelectElement).style.borderColor = "#2563eb"; }}
+      onBlur={(e) => { (e.currentTarget as HTMLSelectElement).style.borderColor = "#e8e8ea"; }}
     >
       <option value="">Default org</option>
       {orgs.map((o) => (

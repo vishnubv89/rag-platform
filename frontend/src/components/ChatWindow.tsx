@@ -23,38 +23,41 @@ export function ChatWindow() {
   }, [messages, loading]);
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full" style={{ background: "#ffffff" }}>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full max-w-xl mx-auto text-center">
+          <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto text-center">
             <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-5"
-              style={{ background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.15)" }}
+              className="w-9 h-9 rounded-xl flex items-center justify-center mb-5"
+              style={{ background: "#eff6ff", border: "1px solid #bfdbfe" }}
             >
-              🧠
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
             </div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-2">Ask your Knowledge Mesh</h2>
-            <p className="text-gray-400 text-sm mb-8 leading-relaxed">
+            <h2 className="text-base font-semibold text-gray-800 mb-2">Ask your knowledge base</h2>
+            <p className="text-sm text-gray-400 mb-7 leading-relaxed">
               Answers grounded in your connected sources — ServiceNow, SharePoint, Confluence, and uploaded documents.
             </p>
-            <div className="grid grid-cols-1 gap-2 w-full">
+            <div className="grid grid-cols-1 gap-1.5 w-full">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   onClick={() => send(s)}
-                  className="text-left px-4 py-3 rounded-xl text-sm transition-all"
-                  style={{ background: "#f9fafb", border: "1px solid #f0f0f0", color: "#374151" }}
+                  className="text-left px-4 py-2.5 rounded-lg text-sm text-gray-600 transition-colors"
+                  style={{ background: "#f7f7f8", border: "1px solid #e8e8ea" }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = "#c7d2fe";
-                    (e.currentTarget as HTMLButtonElement).style.background = "#eef2ff";
+                    (e.currentTarget as HTMLButtonElement).style.background = "#eff6ff";
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "#bfdbfe";
+                    (e.currentTarget as HTMLButtonElement).style.color = "#1d4ed8";
                   }}
                   onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = "#f0f0f0";
-                    (e.currentTarget as HTMLButtonElement).style.background = "#f9fafb";
+                    (e.currentTarget as HTMLButtonElement).style.background = "#f7f7f8";
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "#e8e8ea";
+                    (e.currentTarget as HTMLButtonElement).style.color = "#4b5563";
                   }}
                 >
-                  <span className="text-indigo-400 mr-2">✦</span>
                   {s}
                 </button>
               ))}
@@ -66,8 +69,8 @@ export function ChatWindow() {
             {loading && (
               <div className="flex justify-start mb-4">
                 <div
-                  className="px-4 py-3 rounded-2xl rounded-bl-sm text-sm"
-                  style={{ background: "#f9fafb", border: "1px solid #f0f0f0" }}
+                  className="px-4 py-3 rounded-2xl rounded-bl-sm"
+                  style={{ background: "#f7f7f8", border: "1px solid #e8e8ea" }}
                 >
                   <span className="typing-dot" style={{ color: "#9ca3af" }} />
                   <span className="typing-dot mx-1" style={{ color: "#9ca3af" }} />
@@ -76,7 +79,7 @@ export function ChatWindow() {
               </div>
             )}
             {error && (
-              <div className="text-center text-sm py-2 px-4 rounded-lg mx-auto max-w-sm" style={{ background: "#fef2f2", color: "#ef4444" }}>
+              <div className="text-center text-xs py-2 px-4 rounded-lg mx-auto max-w-sm mt-2" style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>
                 {error}
               </div>
             )}
@@ -85,17 +88,16 @@ export function ChatWindow() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Upload toggle */}
-      <div className="px-6 pb-1 flex items-center justify-between">
-        <span className="text-xs" style={{ color: "#9ca3af" }}>
-          {messages.length > 0 && `${messages.length} message${messages.length !== 1 ? "s" : ""}`}
-        </span>
+      {/* Upload strip */}
+      <div className="px-6 pb-1 flex items-center justify-end" style={{ borderTop: messages.length > 0 ? "none" : undefined }}>
         <button
           onClick={() => setShowUpload((v) => !v)}
-          className="flex items-center gap-1.5 text-xs transition-colors"
-          style={{ color: showUpload ? "#6366f1" : "#9ca3af" }}
+          className="flex items-center gap-1.5 text-xs transition-colors py-1"
+          style={{ color: showUpload ? "#2563eb" : "#9ca3af" }}
         >
-          <span>📎</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
           {showUpload ? "Hide upload" : "Upload document"}
         </button>
       </div>

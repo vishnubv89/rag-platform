@@ -13,41 +13,35 @@ const queryClient = new QueryClient();
 
 type App = "chat" | "knowledge" | "creator" | "search" | "analytics";
 
-const APP_META: Record<App, { label: string; icon: string }> = {
-  chat:      { label: "Chat",           icon: "💬" },
-  knowledge: { label: "Knowledge Hub",  icon: "📚" },
-  creator:   { label: "Doc Creator",    icon: "✏️"  },
-  search:    { label: "Visual Search",  icon: "🖼️" },
-  analytics: { label: "Analytics",      icon: "📊" },
+const APP_LABELS: Record<App, string> = {
+  chat:      "Chat",
+  knowledge: "Knowledge Hub",
+  creator:   "Doc Creator",
+  search:    "Visual Search",
+  analytics: "Analytics",
 };
 
 function Portal() {
   const [activeApp, setActiveApp] = useState<App>("chat");
   const { newSession } = useChatStore();
 
-  const meta = APP_META[activeApp];
-
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar activeApp={activeApp} onAppChange={setActiveApp} />
 
-      <div className="flex flex-col flex-1 min-w-0" style={{ background: "#ffffff" }}>
+      <div className="flex flex-col flex-1 min-w-0" style={{ background: "#f7f7f8" }}>
         {/* Top bar */}
         <header
-          className="flex items-center justify-between px-6"
-          style={{
-            height: 52,
-            minHeight: 52,
-            borderBottom: "1px solid #f0f0f0",
-            background: "white",
-          }}
+          className="flex items-center justify-between px-6 flex-shrink-0"
+          style={{ height: 48, background: "#ffffff", borderBottom: "1px solid #e8e8ea" }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-base leading-none">{meta.icon}</span>
-            <span className="font-semibold text-gray-800 text-sm">{meta.label}</span>
+            <span className="font-semibold text-gray-800 text-sm tracking-tight">
+              {APP_LABELS[activeApp]}
+            </span>
             <span
               className="text-xs px-1.5 py-0.5 rounded"
-              style={{ background: "#f3f4f6", color: "#9ca3af", fontSize: ".65rem", letterSpacing: ".05em" }}
+              style={{ background: "#f3f4f6", color: "#9ca3af", fontSize: ".6rem", letterSpacing: ".06em" }}
             >
               BETA
             </span>
@@ -57,12 +51,12 @@ function Portal() {
             {activeApp === "chat" && (
               <button
                 onClick={newSession}
-                className="text-sm px-3 py-1.5 rounded-lg transition-colors font-medium"
+                className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
                 style={{ background: "#f3f4f6", color: "#374151" }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#e5e7eb")}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#f3f4f6")}
               >
-                + New chat
+                New chat
               </button>
             )}
             <OrgSelector />
@@ -71,21 +65,16 @@ function Portal() {
 
         {/* App content */}
         <main className="flex-1 overflow-hidden">
-          {activeApp === "chat" && <ChatWindow />}
-
+          {activeApp === "chat"      && <ChatWindow />}
           {activeApp === "knowledge" && <KnowledgeHub />}
-
-          {activeApp === "creator" && <DocCreator />}
-
-          {activeApp === "search" && (
+          {activeApp === "creator"   && <DocCreator />}
+          {activeApp === "search"    && (
             <ComingSoon
-              icon="🖼️"
               name="Visual Search"
-              description="Search across images, diagrams, and screenshots embedded in your documents using vision models."
+              description="Search across images, diagrams, and screenshots using vision models."
               features={["Image similarity search", "OCR extraction", "Diagram indexing", "Screenshot search", "Multi-modal retrieval", "Source preview"]}
             />
           )}
-
           {activeApp === "analytics" && <Analytics />}
         </main>
       </div>

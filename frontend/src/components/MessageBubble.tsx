@@ -8,21 +8,22 @@ interface Props {
 export function MessageBubble({ message }: Props) {
   const isUser = message.role === "user";
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-4`}>
-      <div className={`max-w-[75%] ${isUser ? "order-2" : "order-1"}`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-5`}>
+      <div className={`max-w-[72%] ${isUser ? "order-2" : "order-1"}`}>
         <div
-          className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+          className="px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
+          style={
             isUser
-              ? "bg-indigo-600 text-white rounded-br-sm"
-              : "bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-sm"
-          }`}
+              ? { background: "#18181b", color: "#f9fafb", borderRadius: "16px 16px 4px 16px" }
+              : { background: "#ffffff", color: "#111827", border: "1px solid #e8e8ea", borderRadius: "4px 16px 16px 16px" }
+          }
         >
           {message.content}
         </div>
         {!isUser && (
           <SourceCitations sources={message.sources} loopCount={message.loopCount} />
         )}
-        <div className={`text-xs text-gray-400 mt-1 ${isUser ? "text-right" : "text-left"}`}>
+        <div className={`text-xs mt-1.5 ${isUser ? "text-right" : "text-left"}`} style={{ color: "#d1d5db" }}>
           {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       </div>
