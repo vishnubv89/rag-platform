@@ -12,7 +12,7 @@ const NAV_APPS: { id: App; icon: string; label: string; soon?: boolean }[] = [
   { id: "knowledge", icon: "📚", label: "Knowledge Hub" },
   { id: "creator",   icon: "✏️",  label: "Doc Creator"  },
   { id: "search",    icon: "🖼️", label: "Visual Search", soon: true },
-  { id: "analytics", icon: "📊", label: "Analytics",     soon: true },
+  { id: "analytics", icon: "📊", label: "Analytics"     },
 ];
 
 export function Sidebar({ activeApp, onAppChange }: Props) {

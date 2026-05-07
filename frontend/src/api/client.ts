@@ -62,6 +62,39 @@ export async function getDoc(docId: number): Promise<DocDetail> {
   return request<DocDetail>(`/admin/docs/${docId}`, { headers: ADMIN_HEADERS });
 }
 
+export async function getAnalyticsSummary(orgId: number | null, fromDt?: string, toDt?: string) {
+  const p = new URLSearchParams();
+  if (orgId) p.set("org_id", String(orgId));
+  if (fromDt) p.set("from_dt", fromDt);
+  if (toDt) p.set("to_dt", toDt);
+  return request<Record<string, number>>(`/admin/analytics/summary?${p}`, { headers: ADMIN_HEADERS });
+}
+
+export async function getAnalyticsLogs(orgId: number | null, page = 1) {
+  const p = new URLSearchParams({ page: String(page), limit: "15" });
+  if (orgId) p.set("org_id", String(orgId));
+  return request<{ total: number; page: number; items: Record<string, unknown>[] }>(
+    `/admin/analytics/logs?${p}`, { headers: ADMIN_HEADERS }
+  );
+}
+
+export async function getTopSources(orgId: number | null, days = 30) {
+  const p = new URLSearchParams({ days: String(days), limit: "10" });
+  if (orgId) p.set("org_id", String(orgId));
+  return request<{ id: number; title: string; citation_count: number }[]>(
+    `/admin/analytics/top-sources?${p}`, { headers: ADMIN_HEADERS }
+  );
+}
+
+export async function getTopicGraph(orgId: number | null, days = 30) {
+  const p = new URLSearchParams({ days: String(days) });
+  if (orgId) p.set("org_id", String(orgId));
+  return request<{
+    nodes: { id: number; title: string; source: string; citations: number }[];
+    edges: { source: number; target: number; weight: number }[];
+  }>(`/admin/analytics/topic-graph?${p}`, { headers: ADMIN_HEADERS });
+}
+
 export async function getSuggestion(
   context: string,
   orgId: number | null,

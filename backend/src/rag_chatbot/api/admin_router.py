@@ -450,6 +450,82 @@ async def token_usage(
     return [dict(r) for r in rows]
 
 
+@router.get("/analytics/top-sources")
+async def top_sources(
+    org_id: int | None = Query(None),
+    limit: int = Query(10, ge=1, le=50),
+    days: int = Query(30, ge=1, le=365),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn)
+        rows = await conn.fetch(
+            """
+            SELECT d.id, d.title, COUNT(*) AS citation_count
+            FROM   chat_logs cl
+            JOIN   LATERAL unnest(cl.source_chunk_ids) AS cid ON TRUE
+            JOIN   chunks c ON c.id = cid
+            JOIN   documents d ON d.id = c.doc_id
+            WHERE  cl.org_id=$1
+              AND  cl.created_at >= now() - ($2 || ' days')::INTERVAL
+            GROUP  BY d.id, d.title
+            ORDER  BY citation_count DESC
+            LIMIT  $3
+            """,
+            oid, str(days), limit,
+        )
+    return [dict(r) for r in rows]
+
+
+@router.get("/analytics/topic-graph")
+async def topic_graph(
+    org_id: int | None = Query(None),
+    days: int = Query(30, ge=1, le=365),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn)
+        # Citation count per document → node size
+        node_rows = await conn.fetch(
+            """
+            SELECT d.id, d.title, d.source, COUNT(*) AS citations
+            FROM   chat_logs cl
+            JOIN   LATERAL unnest(cl.source_chunk_ids) AS cid ON TRUE
+            JOIN   chunks c ON c.id = cid
+            JOIN   documents d ON d.id = c.doc_id
+            WHERE  cl.org_id=$1
+              AND  cl.created_at >= now() - ($2 || ' days')::INTERVAL
+            GROUP  BY d.id, d.title, d.source
+            """,
+            oid, str(days),
+        )
+        # Co-citation count between document pairs → edge weight
+        edge_rows = await conn.fetch(
+            """
+            WITH doc_per_log AS (
+                SELECT cl.id AS log_id, d.id AS doc_id
+                FROM   chat_logs cl
+                JOIN   LATERAL unnest(cl.source_chunk_ids) AS cid ON TRUE
+                JOIN   chunks c ON c.id = cid
+                JOIN   documents d ON d.id = c.doc_id
+                WHERE  cl.org_id=$1
+                  AND  cl.created_at >= now() - ($2 || ' days')::INTERVAL
+                GROUP  BY cl.id, d.id
+            )
+            SELECT a.doc_id AS source, b.doc_id AS target, COUNT(*) AS weight
+            FROM   doc_per_log a
+            JOIN   doc_per_log b ON a.log_id = b.log_id AND a.doc_id < b.doc_id
+            GROUP  BY a.doc_id, b.doc_id
+            HAVING COUNT(*) >= 1
+            """,
+            oid, str(days),
+        )
+    return {
+        "nodes": [dict(r) for r in node_rows],
+        "edges": [dict(r) for r in edge_rows],
+    }
+
+
 # ─────────────────────────────────────────────
 # System
 # ─────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { ChatWindow } from "./components/ChatWindow";
 import { ComingSoon } from "./components/ComingSoon";
 import { KnowledgeHub } from "./components/KnowledgeHub";
 import { DocCreator } from "./components/DocCreator";
+import { Analytics } from "./components/Analytics";
 import { OrgSelector } from "./components/OrgSelector";
 import { useChatStore } from "./store/chatStore";
 
@@ -85,14 +86,7 @@ function Portal() {
             />
           )}
 
-          {activeApp === "analytics" && (
-            <ComingSoon
-              icon="📊"
-              name="Analytics"
-              description="Usage insights, knowledge coverage gaps, and query trends across your organisation."
-              features={["Query analytics", "Coverage gaps", "Connector health", "Token usage", "Latency trends", "Export reports"]}
-            />
-          )}
+          {activeApp === "analytics" && <Analytics />}
         </main>
       </div>
     </div>
