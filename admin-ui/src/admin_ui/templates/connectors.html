@@ -153,6 +153,58 @@
             </div>
           </div>
 
+          <!-- Google Drive fields -->
+          <div id="fields_gdrive" class="config-fields d-none">
+            <hr><p class="text-muted small fw-semibold text-uppercase mb-2" style="letter-spacing:.06em">Google Drive Config</p>
+            <div class="row g-2">
+              <div class="col-md-12">
+                <label class="form-label small">Service Account JSON <span class="text-muted">(paste full key JSON from GCP Console)</span></label>
+                <textarea class="form-control form-control-sm font-monospace" name="config_service_account_json" rows="4" placeholder='{"type":"service_account","project_id":"...","private_key":"...","client_email":"...@....iam.gserviceaccount.com",...}'></textarea>
+              </div>
+              <div class="col-md-8"><label class="form-label small">Folder ID <span class="text-muted">(optional — from Drive URL: /folders/&lt;ID&gt;)</span></label><input class="form-control form-control-sm" name="config_folder_id" placeholder="Leave blank to sync all accessible files"></div>
+              <div class="col-md-4"><label class="form-label small">MIME types <span class="text-muted">(optional, comma-sep)</span></label><input class="form-control form-control-sm" name="config_include_types" placeholder="defaults: Docs, Sheets, PDF, TXT, MD"></div>
+            </div>
+            <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>Share the target folder with the service account email (Viewer role) before syncing.</p>
+          </div>
+
+          <!-- Zendesk fields -->
+          <div id="fields_zendesk" class="config-fields d-none">
+            <hr><p class="text-muted small fw-semibold text-uppercase mb-2" style="letter-spacing:.06em">Zendesk Guide Config</p>
+            <div class="row g-2">
+              <div class="col-md-4"><label class="form-label small">Subdomain</label><input class="form-control form-control-sm" name="config_subdomain" placeholder="acme"></div>
+              <div class="col-md-8"><label class="form-label small">Agent Email</label><input class="form-control form-control-sm" name="config_email" placeholder="admin@acme.com" type="email"></div>
+              <div class="col-md-12"><label class="form-label small">API Token <span class="text-muted">(Admin Center → Apps → APIs → Zendesk API)</span></label><input class="form-control form-control-sm" type="password" name="config_api_token"></div>
+              <div class="col-md-4"><label class="form-label small">Locale <span class="text-muted">(optional)</span></label><input class="form-control form-control-sm" name="config_locale" placeholder="en-us"></div>
+              <div class="col-md-4"><label class="form-label small">Ticket limit <span class="text-muted">(optional)</span></label><input class="form-control form-control-sm" type="number" name="config_ticket_limit" placeholder="500"></div>
+              <div class="col-md-4 d-flex align-items-end pb-1">
+                <div class="form-check">
+                  <input type="hidden" name="config_sync_tickets" value="false">
+                  <input class="form-check-input" type="checkbox" name="config_sync_tickets" value="true" id="chk_sync_tickets">
+                  <label class="form-check-label small" for="chk_sync_tickets">Also sync resolved tickets</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Jira fields -->
+          <div id="fields_jira" class="config-fields d-none">
+            <hr><p class="text-muted small fw-semibold text-uppercase mb-2" style="letter-spacing:.06em">Jira Config</p>
+            <div class="row g-2">
+              <div class="col-md-12"><label class="form-label small">Base URL</label><input class="form-control form-control-sm" name="config_base_url" placeholder="https://acme.atlassian.net"></div>
+              <div class="col-md-6"><label class="form-label small">Email / Username</label><input class="form-control form-control-sm" name="config_email" type="email" placeholder="admin@acme.com"></div>
+              <div class="col-md-6"><label class="form-label small">API Token <span class="text-muted">(id.atlassian.com → API Tokens)</span></label><input class="form-control form-control-sm" type="password" name="config_api_token"></div>
+              <div class="col-md-8"><label class="form-label small">JQL filter <span class="text-muted">(optional)</span></label><input class="form-control form-control-sm" name="config_jql" placeholder="project = KB ORDER BY updated DESC"></div>
+              <div class="col-md-2"><label class="form-label small">Max issues</label><input class="form-control form-control-sm" type="number" name="config_max_issues" placeholder="2000"></div>
+              <div class="col-md-2 d-flex align-items-end pb-1">
+                <div class="form-check">
+                  <input type="hidden" name="config_cloud" value="true">
+                  <input class="form-check-input" type="checkbox" name="config_cloud" value="false" id="chk_jira_server">
+                  <label class="form-check-label small" for="chk_jira_server">Server / DC</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>

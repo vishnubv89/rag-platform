@@ -10,6 +10,9 @@ CONFIG_FIELDS = {
     "servicenow": ["instance_url", "username", "password", "kb_sys_id", "ingest_incidents"],
     "sharepoint": ["tenant_id", "client_id", "client_secret", "site_url", "folder_path"],
     "confluence": ["base_url", "username", "api_token", "space_key"],
+    "gdrive": ["service_account_json", "folder_id", "include_types"],
+    "zendesk": ["subdomain", "email", "api_token", "locale", "sync_tickets", "ticket_limit"],
+    "jira": ["base_url", "email", "api_token", "jql", "max_issues", "cloud"],
 }
 
 _HIDDEN_TYPES = {"manual"}

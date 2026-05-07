@@ -29,6 +29,7 @@ dependencies = [
     "bcrypt>=4.0.0",
     "PyJWT>=2.8.0",
     "slowapi>=0.1.9",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
