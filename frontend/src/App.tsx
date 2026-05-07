@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { ComingSoon } from "./components/ComingSoon";
+import { KnowledgeHub } from "./components/KnowledgeHub";
 import { OrgSelector } from "./components/OrgSelector";
 import { useChatStore } from "./store/chatStore";
 
@@ -70,14 +71,7 @@ function Portal() {
         <main className="flex-1 overflow-hidden">
           {activeApp === "chat" && <ChatWindow />}
 
-          {activeApp === "knowledge" && (
-            <ComingSoon
-              icon="📚"
-              name="Knowledge Hub"
-              description="Browse, search, and explore your entire knowledge base across all connected sources in one unified view."
-              features={["Full-text search", "Filter by connector", "Document preview", "Export to PDF/DOCX", "Tag & categorise", "Version history"]}
-            />
-          )}
+          {activeApp === "knowledge" && <KnowledgeHub />}
 
           {activeApp === "creator" && (
             <ComingSoon

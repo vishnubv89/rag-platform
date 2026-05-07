@@ -42,3 +42,30 @@ export interface Session {
   messages: ChatMessage[];
   orgId: number | null;
 }
+
+export interface Doc {
+  id: number;
+  title: string;
+  source: string;
+  created_at: string;
+  chunk_count: number;
+}
+
+export interface DocChunk {
+  id: number;
+  chunk_index: number;
+  text: string;
+}
+
+export interface DocDetail extends Doc {
+  org_id: number;
+  metadata: Record<string, unknown> | null;
+  chunks: DocChunk[];
+}
+
+export interface DocListResponse {
+  total: number;
+  page: number;
+  limit: number;
+  items: Doc[];
+}

@@ -202,6 +202,37 @@ async def list_docs(
     return {"total": total, "page": page, "limit": limit, "items": [dict(r) for r in rows]}
 
 
+@router.get("/docs/search")
+async def search_docs(
+    q: str = Query(..., min_length=1),
+    org_id: int | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn)
+        rows = await conn.fetch(
+            """
+            SELECT d.id, d.title, d.source, d.created_at,
+                   COUNT(c.id) AS chunk_count
+            FROM   documents d
+            LEFT JOIN chunks c ON c.doc_id = d.id
+            WHERE  d.org_id = $1
+              AND  (d.title ILIKE $2
+                    OR EXISTS (
+                        SELECT 1 FROM chunks c2
+                        WHERE c2.doc_id = d.id
+                          AND c2.search_vec @@ plainto_tsquery('english', $3)
+                    ))
+            GROUP  BY d.id
+            ORDER  BY d.id DESC
+            LIMIT  $4
+            """,
+            oid, f"%{q}%", q, limit,
+        )
+    return {"items": [dict(r) for r in rows]}
+
+
 @router.get("/docs/{doc_id}")
 async def get_doc(doc_id: int):
     pool = await get_pool()
@@ -212,10 +243,10 @@ async def get_doc(doc_id: int):
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
         chunks = await conn.fetch(
-            "SELECT id, chunk_index, LEFT(text,200) AS preview FROM chunks WHERE doc_id=$1 ORDER BY chunk_index LIMIT 20",
+            "SELECT id, chunk_index, text FROM chunks WHERE doc_id=$1 ORDER BY chunk_index",
             doc_id,
         )
-    return {**dict(doc), "chunks_preview": [dict(c) for c in chunks]}
+    return {**dict(doc), "chunks": [dict(c) for c in chunks]}
 
 
 @router.delete("/docs/{doc_id}", status_code=204)
