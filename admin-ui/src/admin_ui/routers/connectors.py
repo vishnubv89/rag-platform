@@ -19,8 +19,8 @@ _HIDDEN_TYPES = {"manual"}
 
 
 @router.get("/connectors")
-async def connectors_page(request: Request, org_id: str | None = None):
-    org_id = int(org_id) if org_id else None
+async def connectors_page(request: Request):
+    org_id = request.state.active_org_id
     templates = request.app.state.templates
     try:
         connectors = [c for c in await api.list_connectors(org_id=org_id) if c.get("connector_type") not in _HIDDEN_TYPES]
@@ -52,7 +52,6 @@ async def create_connector(
     form = await request.form()
     fields = CONFIG_FIELDS.get(connector_type, [])
     config = {f: form.get(f"config_{f}", "") for f in fields if form.get(f"config_{f}", "")}
-    redirect = f"/connectors?org_id={org_id_int}" if org_id_int else "/connectors"
     try:
         await api.create_connector(
             name=name,
@@ -75,12 +74,12 @@ async def create_connector(
             "error": str(e),
             "active_page": "connectors",
         })
-    return RedirectResponse(redirect, status_code=303)
+    return RedirectResponse("/connectors", status_code=303)
 
 
 @router.get("/connectors/{connector_id}")
-async def connector_detail(request: Request, connector_id: int, org_id: str | None = None):
-    org_id = int(org_id) if org_id else None
+async def connector_detail(request: Request, connector_id: int):
+    org_id = request.state.active_org_id
     templates = request.app.state.templates
     try:
         connector = await api.get_connector(connector_id)
@@ -96,27 +95,20 @@ async def connector_detail(request: Request, connector_id: int, org_id: str | No
 
 
 @router.post("/connectors/{connector_id}/sync")
-async def trigger_sync(connector_id: int, org_id: str | None = Form(None)):
-    org_id = int(org_id) if org_id else None
+async def trigger_sync(connector_id: int):
     await api.trigger_sync(connector_id)
-    redirect = f"/connectors/{connector_id}?org_id={org_id}" if org_id else f"/connectors/{connector_id}"
-    return RedirectResponse(redirect, status_code=303)
+    return RedirectResponse(f"/connectors/{connector_id}", status_code=303)
 
 
 @router.post("/connectors/{connector_id}/toggle")
 async def toggle_connector(connector_id: int, request: Request):
     form = await request.form()
     is_active = form.get("is_active") == "true"
-    org_id_raw = form.get("org_id") or ""
-    org_id = int(org_id_raw) if org_id_raw else None
-    await api.patch_connector(connector_id, org_id=org_id, is_active=is_active)
-    redirect = f"/connectors/{connector_id}?org_id={org_id}" if org_id else f"/connectors/{connector_id}"
-    return RedirectResponse(redirect, status_code=303)
+    await api.patch_connector(connector_id, is_active=is_active)
+    return RedirectResponse(f"/connectors/{connector_id}", status_code=303)
 
 
 @router.post("/connectors/{connector_id}/delete")
-async def delete_connector(connector_id: int, org_id: str | None = Form(None)):
-    org_id = int(org_id) if org_id else None
-    await api.delete_connector(connector_id, org_id=org_id)
-    redirect = f"/connectors?org_id={org_id}" if org_id else "/connectors"
-    return RedirectResponse(redirect, status_code=303)
+async def delete_connector(connector_id: int):
+    await api.delete_connector(connector_id)
+    return RedirectResponse("/connectors", status_code=303)

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     admin_secret_key: str = "change-me"
     app_env: str = "development"
+    session_secret: str = "change-me-session-secret"
 
 
 settings = Settings()

@@ -15,8 +15,8 @@ CONFIG_KEYS = [
 
 
 @router.get("/settings")
-async def settings_page(request: Request, org_id: str | None = None):
-    org_id = int(org_id) if org_id else None
+async def settings_page(request: Request):
+    org_id = request.state.active_org_id
     try:
         cfg = await client.get_config(org_id=org_id)
         orgs = await client.list_orgs()
@@ -77,5 +77,4 @@ async def save_settings(
     await client.update_config(
         org_id=org_id_int, cfg={k: v for k, v in new_cfg.items() if v}
     )
-    redirect = f"/settings?org_id={org_id_int}&saved=1" if org_id_int else "/settings?saved=1"
-    return RedirectResponse(redirect, status_code=303)
+    return RedirectResponse("/settings?saved=1", status_code=303)

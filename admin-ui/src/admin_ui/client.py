@@ -2,6 +2,32 @@
 import httpx
 from admin_ui.config import settings
 
+
+async def login(email: str, password: str) -> dict:
+    """Authenticate a user against the backend — no admin key needed."""
+    async with httpx.AsyncClient(base_url=settings.backend_url, timeout=10.0) as c:
+        r = await c.post("/auth/login", json={"email": email, "password": password})
+    if r.is_error:
+        try:
+            detail = r.json().get("detail", r.text)
+        except Exception:
+            detail = r.text or "Login failed"
+        raise Exception(detail)
+    return r.json()
+
+
+async def me(access_token: str) -> dict:
+    """Return user info for a valid access token."""
+    async with httpx.AsyncClient(
+        base_url=settings.backend_url,
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=10.0,
+    ) as c:
+        r = await c.get("/auth/me")
+    if r.is_error:
+        raise Exception("Could not fetch user info")
+    return r.json()
+
 _client: httpx.AsyncClient | None = None
 
 

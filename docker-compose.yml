@@ -63,6 +63,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-session-secret}
       APP_ENV: development
     depends_on:
       backend:

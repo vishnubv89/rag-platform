@@ -5,8 +5,8 @@ router = APIRouter()
 
 
 @router.get("/audit")
-async def audit_page(request: Request, org_id: str | None = None, offset: int = 0):
-    org_id = int(org_id) if org_id else None
+async def audit_page(request: Request, offset: int = 0):
+    org_id = request.state.active_org_id
     try:
         data = await client.list_audit(org_id=org_id, limit=50, offset=offset)
         orgs = await client.list_orgs()

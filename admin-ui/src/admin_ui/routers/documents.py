@@ -6,8 +6,8 @@ router = APIRouter()
 
 
 @router.get("/documents")
-async def list_documents(request: Request, org_id: str | None = None, page: int = 1):
-    org_id = int(org_id) if org_id else None
+async def list_documents(request: Request, page: int = 1):
+    org_id = request.state.active_org_id
     try:
         docs = await client.list_docs(org_id=org_id, page=page)
         orgs = await client.list_orgs()
@@ -47,8 +47,7 @@ async def document_detail(request: Request, doc_id: int):
 async def delete_document(doc_id: int, org_id: str | None = Form(None)):
     org_id = int(org_id) if org_id else None
     await client.delete_doc(doc_id, org_id=org_id)
-    redirect = f"/documents?org_id={org_id}" if org_id else "/documents"
-    return RedirectResponse(redirect, status_code=303)
+    return RedirectResponse("/documents", status_code=303)
 
 
 @router.post("/documents/ingest-file")
@@ -59,8 +58,7 @@ async def ingest_file_document(
     org_id_int = int(org_id) if org_id else None
     content = await file.read()
     await client.ingest_file_upload(filename=file.filename or "upload", content=content, org_id=org_id_int)
-    redirect = f"/documents?org_id={org_id_int}" if org_id_int else "/documents"
-    return RedirectResponse(redirect, status_code=303)
+    return RedirectResponse("/documents", status_code=303)
 
 
 @router.post("/documents/ingest")
@@ -72,5 +70,4 @@ async def ingest_document(
 ):
     org_id_int = int(org_id) if org_id else None
     await client.ingest_text(title=title, text=text, source=source, org_id=org_id_int)
-    redirect = f"/documents?org_id={org_id_int}" if org_id_int else "/documents"
-    return RedirectResponse(redirect, status_code=303)
+    return RedirectResponse("/documents", status_code=303)
