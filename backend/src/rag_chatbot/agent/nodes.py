@@ -46,10 +46,13 @@ async def retriever_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 _GRADER_SYSTEM = (
-    "You are a relevance grader. Given a query and numbered document chunks, "
-    "respond with ONLY a JSON array of integer indices (0-based) of the chunks "
-    "relevant to the query. No objects, no explanation, just integers. "
-    "Examples: [0,2] means chunks 0 and 2 are relevant. [] means none are relevant."
+    "You are a strict relevance grader. Given a query and numbered document chunks, "
+    "respond with ONLY a JSON array of integer indices (0-based) of chunks that "
+    "DIRECTLY answer the query. Be conservative — if a chunk is only tangentially "
+    "related, exclude it. If you have any doubt, exclude it. "
+    "A chunk is relevant only if it contains specific information that addresses the query. "
+    "Examples: [0,2] means chunks 0 and 2 are relevant. [] means none are relevant. "
+    "No objects, no explanation — just the JSON integer array."
 )
 
 
@@ -92,7 +95,7 @@ async def grader_node(state: AgentState) -> dict:
     passed = len(relevant_docs) > 0
 
     return {
-        "retrieved_docs": relevant_docs if passed else docs,
+        "retrieved_docs": relevant_docs if passed else [],
         "grading_passed": passed,
         "loop_count": state["loop_count"] + 1,
     }
@@ -124,12 +127,14 @@ async def rewriter_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 _GENERATOR_SYSTEM = (
-    "You are a knowledgeable assistant. Answer the user's question directly and "
-    "conversationally, as if you know the answer yourself — never mention that you "
+    "You are a knowledgeable assistant. Answer the user's question using ONLY the "
+    "context provided. Answer directly and conversationally — never mention that you "
     "are working from documents, chunks, context, or retrieved information. "
     "Do not use phrases like 'based on the provided', 'according to the documents', "
-    "'the context states', or anything similar. Just answer naturally. "
-    "If the information is not available, say so briefly without over-explaining why."
+    "'the context states', or anything similar. "
+    "IMPORTANT: Do NOT use your general knowledge to fill gaps. If the provided context "
+    "does not contain the answer, say 'I don't have information about that in my knowledge base.' "
+    "Do not invent, guess, or supplement with facts not present in the context."
 )
 
 _CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
@@ -171,5 +176,31 @@ async def generator_node(state: AgentState) -> dict:
         "answer": answer,
         "source_chunk_ids": [d["chunk_id"] for d in docs],
         "sources": sources,
+        "messages": [{"role": "assistant", "content": answer}],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Clarify — fires when grading exhausted without finding relevant docs
+# ---------------------------------------------------------------------------
+
+async def clarify_node(state: AgentState) -> dict:
+    query = state["messages"][-1]["content"]
+    cfg = state.get("llm_config", {})
+    system = (
+        "You are a helpful assistant. The user asked a question that isn't covered "
+        "by the available knowledge base. Politely let them know you don't have that "
+        "information, and ask a short clarifying question to help narrow down what "
+        "they're looking for — perhaps they meant something different, or there's a "
+        "related topic in the knowledge base that would help. Keep it brief and friendly."
+    )
+    loop = asyncio.get_running_loop()
+    answer = await loop.run_in_executor(
+        None, lambda: _generate(f"User asked: {query}", system, cfg)
+    )
+    return {
+        "answer": answer,
+        "source_chunk_ids": [],
+        "sources": [],
         "messages": [{"role": "assistant", "content": answer}],
     }

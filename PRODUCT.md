@@ -1,6 +1,6 @@
 # RAG Platform — Product & Technical Reference
 
-> **Version:** 0.1.0 · **Last updated:** May 2026
+> **Version:** 0.2.0 · **Last updated:** May 2026
 >
 > This document is the single source of truth for understanding, deploying, and operating the RAG Platform. It covers product purpose, architecture, tech stack, database design, API contracts, local development, Docker Compose deployment, and Kubernetes (Helm) deployment. No prior context is required.
 
@@ -39,10 +39,15 @@ The **RAG Platform** is a production-grade, multi-tenant AI chatbot backed by **
 | **Document ingestion** | Upload PDF, TXT, or Markdown files; they are chunked, embedded, and stored in PostgreSQL with pgvector |
 | **Hybrid search** | Every query triggers BM25 full-text search and cosine vector search, fused via Reciprocal Rank Fusion (RRF) |
 | **Agentic retrieval** | The LLM agent routes queries, grades retrieved chunks, rewrites queries on failure, and loops up to N times before generating |
+| **Knowledge grounding** | A strict grader passes only chunks that directly answer the query; when no relevant chunks are found after all retries, a dedicated clarify node asks the user for more context instead of hallucinating |
 | **Source citations** | Every answer includes the chunk IDs that grounded it, shown inline in the chat UI |
+| **Follow-up suggestions** | After each assistant response, three contextual follow-up question chips are surfaced asynchronously — always powered by Gemini regardless of the org's primary LLM setting |
 | **Multi-tenancy** | Organizations are isolated by `org_id`; each org has its own API keys and per-org model/chunk configuration |
+| **Persistent org scope** | Admin panel org selection is stored in a signed httponly cookie — survives page navigations and redirects without appending `?org_id=` to every URL |
+| **Admin authentication** | Admin-ui has login/logout backed by the backend user database; only `superadmin` and `admin` roles are admitted |
 | **MCP integration** | Retrieval tools are exposed via Model Context Protocol (MCP), the industry standard for LLM tool interfaces |
-| **Admin panel** | Web-based admin for document management, model settings, org config, API key rotation, and analytics |
+| **Admin panel** | Web-based admin for document management, model settings, org config, API key rotation, analytics, and connector management |
+| **Connector support** | ServiceNow, SharePoint, Confluence, Google Drive, Zendesk, and Jira connectors for automated knowledge sync |
 
 ### Who it is for
 
@@ -238,19 +243,23 @@ App
 | Styling | Bootstrap 5.3 CDN + Bootstrap Icons (no build step) |
 | Charts | Chart.js 4.4 CDN (token usage bar chart) |
 | Backend client | `httpx.AsyncClient` singleton with auto-injected `X-Admin-Key` header |
-| Configuration | Pydantic Settings (`BACKEND_URL`, `ADMIN_SECRET_KEY`) |
+| Authentication | Starlette `SessionMiddleware`; login validates against backend `/auth/login`; `superadmin` / `admin` roles only; 8-hour signed cookie session |
+| Org scope | Persistent org selection via `admin_org_scope` httponly cookie; middleware resolves URL param → cookie → None and syncs on every response |
+| Configuration | Pydantic Settings (`BACKEND_URL`, `ADMIN_SECRET_KEY`, `SESSION_SECRET`) |
 
 **Pages and routes:**
 
 | Page | Route | What it does |
 |---|---|---|
+| Login | `GET/POST /login` | Email + password form; validates against backend auth; enforces role |
 | Dashboard | `GET /` | Summary cards (total chats, tokens, avg latency), recent docs, recent chat logs |
 | Documents | `GET /documents` | Paginated document list with chunk counts; inline ingest form |
-| Document Detail | `GET /documents/{id}` | Full metadata + first 20 chunk previews |
+| Document Detail | `GET /documents/{id}` | Full metadata + chunk preview with text and chunk ID |
 | Settings | `GET /settings` | Per-org model/chunk config form; changes persist to `app_config` table |
 | Organizations | `GET /orgs` | Org table; create org modal |
 | Org Detail | `GET /orgs/{id}` | API key list; generate key (raw shown once in alert); revoke key |
 | Analytics | `GET /analytics` | Date-filtered summary, daily token bar chart, paginated chat log table |
+| Connectors | `GET /connectors` | Status of all registered connectors (ServiceNow, SharePoint, Confluence, Google Drive, Zendesk, Jira) |
 
 ---
 
@@ -316,33 +325,36 @@ class AgentState(TypedDict):
 
 ```
 START
-  └─► router_node
-        ├─ [ANSWER]  ──────────────────────────────────────► generator_node ──► END
-        └─ [RETRIEVE] ──► retriever_node
+  └─► intent_node
+        ├─ [chitchat / skip]  ─────────────────────────────► generator_node ──► END
+        └─ [retrieve] ──► retriever_node
                                └─► grader_node
                                      ├─ [RELEVANT] ─────────► generator_node ──► END
                                      └─ [IRRELEVANT]
                                            ├─ loop_count < max ──► rewriter_node
                                            │                             └─► retriever_node (loop)
-                                           └─ loop_count >= max ─────► generator_node ──► END
+                                           └─ loop_count >= max ─────► clarify_node ──► END
 ```
 
 ### Node descriptions
 
-**`router_node`**
-Sends the user's question to Gemini with a system prompt asking for a single-word verdict: `RETRIEVE` or `ANSWER`. General knowledge questions skip retrieval entirely to save latency.
+**`intent_node`**
+Lightweight regex check — no LLM call. Detects chitchat (greetings, thanks, "who are you") and sets `skip_retrieval=True` so those queries bypass the retrieval loop entirely and go straight to the generator with a friendly persona prompt.
 
 **`retriever_node`**
-Calls `hybrid_search(query)` on the MCP server. The MCP server embeds the query with `text-embedding-004` (task_type=`RETRIEVAL_QUERY`), runs the RRF SQL query, and returns the top-K chunks with their RRF scores.
+Calls `hybrid_search(query)` directly against the database. Embeds the query with `text-embedding-004` (task_type=`RETRIEVAL_QUERY`) and runs the RRF SQL query returning the top-K chunks.
 
 **`grader_node`**
-Issues one Gemini call per retrieved chunk (in parallel via `asyncio.gather`). Each call receives the query and one chunk and returns `RELEVANT` or `IRRELEVANT`. Only relevant chunks are kept. If zero chunks pass and the loop budget remains, routing shifts to the rewriter.
+Issues a single batched Gemini call with all retrieved chunks. Uses a **conservative** grader prompt — a chunk must directly answer the query to pass; if there is any doubt, it is excluded. Returns a JSON array of relevant indices. When grading fails, `retrieved_docs` is cleared to `[]` so the generator cannot cite irrelevant sources.
 
 **`rewriter_node`**
 Sends the original query to Gemini with a prompt asking for a reformulated version using different keywords. This corrected query replaces `state["query"]` before the next retrieval attempt.
 
 **`generator_node`**
-Receives the accepted chunks formatted as `[chunk_id: N]\n{text}` blocks, instructs Gemini to synthesise an answer citing chunk IDs, and writes the answer back to state. If no chunks are available (all loops exhausted), it answers from general knowledge and notes the limitation.
+Receives the accepted chunks and instructs Gemini to answer using **only** the provided context — no general knowledge fill-in. If `retrieved_docs` is empty (grading never passed), the generator is not reached; the clarify node fires instead.
+
+**`clarify_node`**
+Fires when all retrieval loops are exhausted without grading passing. Instead of hallucinating, it acknowledges the gap and asks the user a short clarifying question to help narrow the query to something the knowledge base can actually answer. It returns empty `source_chunk_ids` and `sources`.
 
 ### Hybrid search SQL (RRF)
 
@@ -514,11 +526,13 @@ Immutable audit log of every chat interaction.
 
 ## 8. API Reference
 
-### Public endpoints (no auth)
+### Public endpoints (Bearer token required for chat; no auth for health/ingest)
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| `POST` | `/chat` | `{message, history?, org_id?, session_id?}` | `{answer, source_chunk_ids, loop_count, session_id}` |
+| `POST` | `/chat` | `{message, history?, org_id?, session_id?}` | `{answer, source_chunk_ids, sources, loop_count, session_id}` |
+| `POST` | `/chat/followup` | `{messages, org_id?}` | `{suggestions: string[]}` — 3 contextual follow-up questions |
+| `POST` | `/suggest` | `{context, org_id?}` | `{suggestion, sources}` — next-paragraph writing suggestion |
 | `POST` | `/ingest/text` | `{title, text, source?}` | `{doc_id, title, chunks}` |
 | `POST` | `/ingest/file` | `multipart/form-data` with `file` field | `{doc_id, title, chunks}` |
 | `GET` | `/health` | — | `{"status": "ok"}` |
@@ -614,8 +628,10 @@ All admin endpoints are prefixed with `/admin`. Authentication is via the `X-Adm
 
 | Layer | Mechanism | Coverage |
 |---|---|---|
+| **Admin UI session** | Starlette `SessionMiddleware` (signed cookie, 8h TTL); login validates against backend `/auth/login`; only `superadmin` / `admin` roles admitted | All admin-ui pages (public: `/login` only) |
 | **Admin API** | `X-Admin-Key` header, SHA-256 hash compared against `api_keys` table | All `/admin/**` endpoints |
 | **Bootstrap** | Static `ADMIN_SECRET_KEY` env var | Used before any org/key rows exist; must be rotated in production |
+| **User API** | JWT Bearer token (`Authorization: Bearer <token>`) from `/auth/login` | `/chat`, `/suggest`, `/chat/followup` |
 | **CORS** | FastAPI `CORSMiddleware` with explicit `CORS_ORIGINS` allow-list | Prevents cross-origin chat requests |
 | **Ingress restriction** | `nginx.ingress.kubernetes.io/whitelist-source-range` on admin-ui ingress | Limits admin panel to internal network CIDR |
 

@@ -1,6 +1,6 @@
 # RAG Platform
 
-A production-grade, multi-tenant AI chatbot backed by **Agentic Retrieval-Augmented Generation (RAG)**. Unlike naive RAG systems that retrieve once and answer, this platform uses a **LangGraph agent loop** that reasons, evaluates chunk quality, rewrites queries on failure, and only generates an answer once it is confident the context is relevant.
+A production-grade, multi-tenant AI chatbot backed by **Agentic Retrieval-Augmented Generation (RAG)**. Unlike naive RAG systems that retrieve once and answer, this platform uses a **LangGraph agent loop** that reasons, evaluates chunk quality, rewrites queries on failure, and only generates an answer when it is confident the context is relevant — and **asks for clarification instead of hallucinating** when it isn't.
 
 Built as a **3-pod monorepo** — independently deployable via Docker Compose or Kubernetes Helm charts.
 
@@ -45,7 +45,10 @@ Built as a **3-pod monorepo** — independently deployable via Docker Compose or
 | Layer | Technology | Why |
 |---|---|---|
 | LLM + Embeddings | `google-genai` — `gemini-2.0-flash` / `text-embedding-004` | Unified SDK, 768d Matryoshka embeddings, task-type aware |
-| Agent loop | LangGraph `StateGraph` | Conditional edges, loop control, rewriter fallback |
+| Agent loop | LangGraph `StateGraph` | Conditional edges, loop control, clarify fallback instead of hallucination |
+| Knowledge grounding | Conservative grader + `clarify_node` | Refuses to use general knowledge; asks clarifying questions when KB has no answer |
+| Follow-up suggestions | `POST /chat/followup` async after response | 3 contextual chips per reply, always via Gemini regardless of org's LLM |
+| Connector sync | ServiceNow, SharePoint, Confluence, Google Drive, Zendesk, Jira | Automated knowledge base ingestion from enterprise systems |
 | Tool interface | FastMCP | Model Context Protocol — standard LLM tool interface |
 | Vector search | pgvector HNSW (`m=16`, `ef_construction=64`, cosine) | In-Postgres vectors, no separate vector DB to operate |
 | Full-text search | PostgreSQL `tsvector` + GIN index | Native BM25 with no extra deps |
@@ -56,6 +59,7 @@ Built as a **3-pod monorepo** — independently deployable via Docker Compose or
 | State management | Zustand with localStorage persist | Simple, no boilerplate, sessions survive refresh |
 | Styling | Tailwind CSS v4 (Vite plugin) | No config file, no purge step |
 | Admin UI | Jinja2 + Bootstrap 5 CDN + Chart.js | Zero frontend build step |
+| Admin auth | Starlette SessionMiddleware + backend user DB | Role-gated login (superadmin/admin only), 8h signed cookie session |
 | Chunking | tiktoken `cl100k_base`, 300 tokens / 50 overlap | Deterministic, model-aligned token boundaries |
 | Orchestration | Helm (3 charts) + Docker Compose | Same config for local dev and Kubernetes |
 
@@ -199,6 +203,20 @@ rag-platform/
 | `retrieval_top_k` | `8` | Chunks returned per search |
 | `grader_max_loops` | `3` | Max retrieval-rewrite cycles |
 | `reranker_top_k` | `5` | Chunks after reranking |
+
+---
+
+## What's New in v0.2
+
+| Area | Change |
+|---|---|
+| **Knowledge grounding** | Grader is now conservative — excludes chunks on any doubt. Generator is context-only and cannot use general knowledge. When all retry loops exhaust without relevant chunks, a new `clarify_node` asks the user for clarification instead of hallucinating. |
+| **Follow-up suggestions** | After every assistant response, three contextual follow-up chips are generated asynchronously via `POST /chat/followup`. Always uses Gemini regardless of the org's primary LLM setting. |
+| **Admin authentication** | Admin-ui now has a login page backed by the backend user database. Only `superadmin` and `admin` roles are admitted. Sessions stored in a signed httponly cookie with 8-hour TTL. |
+| **Persistent org scope** | Org selection in the admin panel is now stored in a cookie (`admin_org_scope`) rather than a URL parameter — survives navigations, redirects, and form submissions without leaking into every link. |
+| **New connectors** | Google Drive, Zendesk, and Jira connectors added alongside existing ServiceNow, SharePoint, and Confluence. |
+| **Embedding bug fix** | Fixed a Google GenAI SDK quirk: `embed_content(contents=list)` always returns exactly 1 embedding regardless of list length. Fixed by calling once per text. |
+| **Conversational tone** | Generator no longer mentions "based on the provided document chunks" — answers feel person-to-person. |
 
 ---
 

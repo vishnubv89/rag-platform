@@ -7,6 +7,7 @@ from rag_chatbot.agent.nodes import (
     grader_node,
     rewriter_node,
     generator_node,
+    clarify_node,
 )
 from rag_chatbot.config import settings
 
@@ -20,7 +21,7 @@ def _route_after_grader(state: AgentState) -> str:
         return "generate"
     if state["loop_count"] < settings.grader_max_loops:
         return "rewrite"
-    return "generate"
+    return "clarify"
 
 
 def build_graph() -> StateGraph:
@@ -31,6 +32,7 @@ def build_graph() -> StateGraph:
     graph.add_node("grader", grader_node)
     graph.add_node("rewriter", rewriter_node)
     graph.add_node("generator", generator_node)
+    graph.add_node("clarify", clarify_node)
 
     graph.set_entry_point("intent")
 
@@ -43,10 +45,11 @@ def build_graph() -> StateGraph:
     graph.add_conditional_edges(
         "grader",
         _route_after_grader,
-        {"generate": "generator", "rewrite": "rewriter"},
+        {"generate": "generator", "rewrite": "rewriter", "clarify": "clarify"},
     )
     graph.add_edge("rewriter", "retriever")
     graph.add_edge("generator", END)
+    graph.add_edge("clarify", END)
 
     return graph.compile()
 
