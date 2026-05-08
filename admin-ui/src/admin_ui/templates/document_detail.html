@@ -22,11 +22,11 @@
     <table class="table table-sm mb-0">
       <thead class="table-light"><tr><th>#</th><th>Chunk ID</th><th>Preview</th></tr></thead>
       <tbody>
-      {% for c in doc.get('chunks_preview', []) %}
+      {% for c in doc.get('chunks', []) %}
       <tr>
         <td class="text-muted">{{ c.chunk_index }}</td>
         <td class="text-muted">{{ c.id }}</td>
-        <td><small>{{ c.preview }}</small></td>
+        <td><small>{{ c.text[:200] }}{% if c.text|length > 200 %}…{% endif %}</small></td>
       </tr>
       {% else %}
       <tr><td colspan="3" class="text-center text-muted py-3">No chunks found.</td></tr>
