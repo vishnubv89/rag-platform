@@ -5,7 +5,8 @@ router = APIRouter()
 
 
 @router.get("/")
-async def dashboard(request: Request, org_id: int | None = None):
+async def dashboard(request: Request, org_id: str | None = None):
+    org_id = int(org_id) if org_id else None
     try:
         summary = await client.analytics_summary(org_id=org_id)
         docs = await client.list_docs(org_id=org_id, limit=5)

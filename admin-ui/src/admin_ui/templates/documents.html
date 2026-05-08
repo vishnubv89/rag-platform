@@ -90,8 +90,8 @@
   <div class="card-footer bg-white d-flex justify-content-between align-items-center">
     <small class="text-muted">{{ docs['total'] }} total</small>
     <div class="btn-group btn-group-sm">
-      {% if page > 1 %}<a class="btn btn-outline-secondary" href="?page={{ page-1 }}&org_id={{ active_org_id or '' }}">Prev</a>{% endif %}
-      <a class="btn btn-outline-secondary" href="?page={{ page+1 }}&org_id={{ active_org_id or '' }}">Next</a>
+      {% if page > 1 %}<a class="btn btn-outline-secondary" href="?page={{ page-1 }}{% if active_org_id %}&org_id={{ active_org_id }}{% endif %}">Prev</a>{% endif %}
+      <a class="btn btn-outline-secondary" href="?page={{ page+1 }}{% if active_org_id %}&org_id={{ active_org_id }}{% endif %}">Next</a>
     </div>
   </div>
   {% endif %}

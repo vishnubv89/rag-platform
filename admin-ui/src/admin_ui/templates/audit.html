@@ -52,10 +52,10 @@
     <small class="text-muted">{{ total }} total events</small>
     <div class="btn-group btn-group-sm">
       {% if offset > 0 %}
-      <a class="btn btn-outline-secondary" href="?offset={{ [offset-50,0]|max }}&org_id={{ active_org_id or '' }}">Prev</a>
+      <a class="btn btn-outline-secondary" href="?offset={{ [offset-50,0]|max }}{% if active_org_id %}&org_id={{ active_org_id }}{% endif %}">Prev</a>
       {% endif %}
       {% if offset + limit < total %}
-      <a class="btn btn-outline-secondary" href="?offset={{ offset+50 }}&org_id={{ active_org_id or '' }}">Next</a>
+      <a class="btn btn-outline-secondary" href="?offset={{ offset+50 }}{% if active_org_id %}&org_id={{ active_org_id }}{% endif %}">Next</a>
       {% endif %}
     </div>
   </div>

@@ -7,7 +7,8 @@ router = APIRouter()
 
 
 @router.get("/knowledge")
-async def knowledge_health_page(request: Request, org_id: int | None = None):
+async def knowledge_health_page(request: Request, org_id: str | None = None):
+    org_id = int(org_id) if org_id else None
     templates = request.app.state.templates
     try:
         health = await api.knowledge_health(org_id=org_id)
@@ -24,18 +25,21 @@ async def knowledge_health_page(request: Request, org_id: int | None = None):
         "orgs": orgs,
         "active_org_id": org_id,
         "error": error,
+        "active_page": "knowledge",
     })
 
 
 @router.post("/knowledge/conflicts/{conflict_id}/resolve")
-async def resolve_conflict(conflict_id: int, org_id: int | None = Form(None)):
+async def resolve_conflict(conflict_id: int, org_id: str | None = Form(None)):
+    org_id = int(org_id) if org_id else None
     await api.resolve_conflict(conflict_id, status="resolved")
     redirect = f"/knowledge?org_id={org_id}" if org_id else "/knowledge"
     return RedirectResponse(redirect, status_code=303)
 
 
 @router.post("/knowledge/conflicts/{conflict_id}/dismiss")
-async def dismiss_conflict(conflict_id: int, org_id: int | None = Form(None)):
+async def dismiss_conflict(conflict_id: int, org_id: str | None = Form(None)):
+    org_id = int(org_id) if org_id else None
     await api.resolve_conflict(conflict_id, status="dismissed")
     redirect = f"/knowledge?org_id={org_id}" if org_id else "/knowledge"
     return RedirectResponse(redirect, status_code=303)
