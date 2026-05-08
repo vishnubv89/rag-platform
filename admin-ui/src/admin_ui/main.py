@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import admin_ui.client as api
 from admin_ui.routers import dashboard, documents, settings, orgs, analytics, connectors, knowledge, users, audit
 
 app = FastAPI(title="RAG Admin UI", docs_url=None, redoc_url=None)
@@ -23,7 +24,13 @@ app.include_router(audit.router)
 
 
 @app.middleware("http")
-async def attach_flash(request: Request, call_next):
+async def attach_globals(request: Request, call_next):
     request.state.error = None
     request.state.success = None
+    # Inject org list globally so base.html sidebar can render the org switcher
+    # without each router having to pass it explicitly.
+    try:
+        request.state.all_orgs = await api.list_orgs()
+    except Exception:
+        request.state.all_orgs = []
     return await call_next(request)
