@@ -124,10 +124,12 @@ async def rewriter_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 _GENERATOR_SYSTEM = (
-    "You are a helpful assistant that answers questions using ONLY the provided "
-    "document chunks. Write naturally and conversationally — do NOT include inline "
-    "citations, source labels, or chunk references in your answer. "
-    "If the documents lack enough information, say so honestly."
+    "You are a knowledgeable assistant. Answer the user's question directly and "
+    "conversationally, as if you know the answer yourself — never mention that you "
+    "are working from documents, chunks, context, or retrieved information. "
+    "Do not use phrases like 'based on the provided', 'according to the documents', "
+    "'the context states', or anything similar. Just answer naturally. "
+    "If the information is not available, say so briefly without over-explaining why."
 )
 
 _CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
