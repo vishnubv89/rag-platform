@@ -35,19 +35,20 @@ def _embed_sync(text: str, task_type: str) -> tuple[float, ...]:
     return tuple(response.embeddings[0].values)
 
 
-def _embed_batch_sync(texts: list[str], task_type: str) -> list[list[float]]:
-    """Embed up to _BATCH_SIZE texts with retry/backoff on rate-limit errors."""
+def _embed_one_sync(text: str, task_type: str) -> list[float]:
+    """Embed a single text with retry/backoff. embed_content(contents=list) returns
+    only one embedding regardless of list length, so we embed one at a time."""
     for attempt in range(_MAX_RETRIES):
         try:
             response = _get_client().models.embed_content(
                 model=settings.embedding_model,
-                contents=texts,
+                contents=text,
                 config=types.EmbedContentConfig(
                     task_type=task_type,
                     output_dimensionality=settings.embedding_dim,
                 ),
             )
-            return [list(e.values) for e in response.embeddings]
+            return list(response.embeddings[0].values)
         except Exception as exc:
             msg = str(exc).lower()
             is_rate_limit = "429" in msg or "quota" in msg or "rate" in msg
@@ -55,6 +56,12 @@ def _embed_batch_sync(texts: list[str], task_type: str) -> list[list[float]]:
                 time.sleep(_RETRY_BASE ** attempt)
                 continue
             raise
+    raise RuntimeError("unreachable")
+
+
+def _embed_batch_sync(texts: list[str], task_type: str) -> list[list[float]]:
+    """Embed a list of texts one at a time (SDK does not support true batch)."""
+    return [_embed_one_sync(text, task_type) for text in texts]
 
 
 async def embed_text(text: str, task_type: str = "RETRIEVAL_QUERY") -> list[float]:
