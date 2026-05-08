@@ -126,3 +126,14 @@ export async function getSuggestion(
     body: JSON.stringify({ context, org_id: orgId }),
   });
 }
+
+export async function getFollowUps(
+  messages: { role: string; content: string }[],
+  orgId: number | null,
+): Promise<string[]> {
+  const data = await request<{ suggestions: string[] }>("/chat/followup", {
+    method: "POST",
+    body: JSON.stringify({ messages, org_id: orgId }),
+  });
+  return data.suggestions ?? [];
+}

@@ -83,6 +83,15 @@ class SuggestResponse(BaseModel):
     sources: list[dict]
 
 
+class FollowUpRequest(BaseModel):
+    messages: list[dict]
+    org_id: int | None = None
+
+
+class FollowUpResponse(BaseModel):
+    suggestions: list[str]
+
+
 class IngestTextRequest(BaseModel):
     title: str
     text: str
@@ -219,6 +228,42 @@ async def suggest(req: SuggestRequest, request: Request):
     unique_sources = [s for s in sources if not (s["doc_id"] in seen or seen.add(s["doc_id"]))]  # type: ignore[func-returns-value]
 
     return SuggestResponse(suggestion=suggestion, sources=unique_sources)
+
+
+_FOLLOWUP_SYSTEM = (
+    "You generate concise follow-up questions for a conversation. "
+    "Output ONLY a raw JSON array of exactly 3 short question strings. "
+    "No markdown, no explanation, no preamble — just the JSON array."
+)
+
+
+@app.post("/chat/followup", response_model=FollowUpResponse)
+@limiter.limit("60/minute")
+async def chat_followup(req: FollowUpRequest, request: Request):
+    await require_user(request)
+    import asyncio, json as _json
+    recent = req.messages[-6:]
+    history = "\n".join(
+        f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent
+    )
+    prompt = (
+        f"Conversation so far:\n{history}\n\n"
+        "Generate 3 natural follow-up questions the user might want to ask next. "
+        "Make them specific to what was discussed, not generic."
+    )
+    loop = asyncio.get_running_loop()
+    try:
+        # Always use Gemini for suggestions — fast, lightweight, unaffected
+        # by the org's primary LLM provider setting or its credit balance.
+        raw = await loop.run_in_executor(
+            None, lambda: llm_generate(prompt, _FOLLOWUP_SYSTEM, {"llm_provider": "gemini"})
+        )
+        start, end = raw.index("["), raw.rindex("]") + 1
+        suggestions = _json.loads(raw[start:end])[:3]
+        suggestions = [s for s in suggestions if isinstance(s, str)]
+    except Exception:
+        suggestions = []
+    return FollowUpResponse(suggestions=suggestions)
 
 
 @app.post("/ingest/text", response_model=IngestResponse)

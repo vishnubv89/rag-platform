@@ -14,13 +14,13 @@ const SUGGESTIONS = [
 
 export function ChatWindow() {
   const { messages } = useChatStore();
-  const { send, loading, error } = useChat();
+  const { send, loading, error, suggestions } = useChat();
   const [showUpload, setShowUpload] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, suggestions]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: "#ffffff" }}>
@@ -81,6 +81,36 @@ export function ChatWindow() {
             {error && (
               <div className="text-center text-xs py-2 px-4 rounded-lg mx-auto max-w-sm mt-2" style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>
                 {error}
+              </div>
+            )}
+
+            {/* Follow-up suggestion chips */}
+            {!loading && suggestions.length > 0 && (
+              <div className="flex flex-col gap-1.5 mt-3 mb-1 max-w-lg">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => send(s)}
+                    className="text-left px-3.5 py-2 rounded-xl text-sm transition-colors"
+                    style={{
+                      background: "#f7f7f8",
+                      border: "1px solid #e8e8ea",
+                      color: "#4b5563",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "#eff6ff";
+                      e.currentTarget.style.borderColor = "#bfdbfe";
+                      e.currentTarget.style.color = "#1d4ed8";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "#f7f7f8";
+                      e.currentTarget.style.borderColor = "#e8e8ea";
+                      e.currentTarget.style.color = "#4b5563";
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
               </div>
             )}
           </>
