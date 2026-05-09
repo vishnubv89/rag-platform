@@ -9,9 +9,9 @@ from rag_chatbot.config import settings
 
 _client: genai.Client | None = None
 
-_BATCH_SIZE = 100   # Gemini hard limit per embed_content call
+_BATCH_SIZE  = 100   # Gemini hard limit per embed_content call
 _MAX_RETRIES = 4
-_RETRY_BASE  = 2.0  # seconds — exponential backoff base
+_INTER_DELAY = 4.1   # seconds between embedding calls — keeps us under 15 RPM free tier
 
 
 def _get_client() -> genai.Client:
@@ -53,15 +53,21 @@ def _embed_one_sync(text: str, task_type: str) -> list[float]:
             msg = str(exc).lower()
             is_rate_limit = "429" in msg or "quota" in msg or "rate" in msg
             if is_rate_limit and attempt < _MAX_RETRIES - 1:
-                time.sleep(_RETRY_BASE ** attempt)
+                # 429s need a real wait — exponential: 60s, 120s, 240s
+                time.sleep(60 * (2 ** attempt))
                 continue
             raise
     raise RuntimeError("unreachable")
 
 
 def _embed_batch_sync(texts: list[str], task_type: str) -> list[list[float]]:
-    """Embed a list of texts one at a time (SDK does not support true batch)."""
-    return [_embed_one_sync(text, task_type) for text in texts]
+    """Embed a list of texts one at a time, throttled to stay under 15 RPM."""
+    results = []
+    for i, text in enumerate(texts):
+        if i > 0:
+            time.sleep(_INTER_DELAY)
+        results.append(_embed_one_sync(text, task_type))
+    return results
 
 
 async def embed_text(text: str, task_type: str = "RETRIEVAL_QUERY") -> list[float]:
@@ -80,7 +86,4 @@ async def embed_batch(
         sub = texts[i : i + _BATCH_SIZE]
         batch_result = await loop.run_in_executor(None, _embed_batch_sync, sub, task_type)
         results.extend(batch_result)
-        # Brief pause between batches to avoid bursting the rate limit
-        if i + _BATCH_SIZE < len(texts):
-            await asyncio.sleep(0.5)
     return results
