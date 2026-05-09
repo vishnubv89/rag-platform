@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
-from rag_chatbot.ingestion.chunker import chunk_text
+from rag_chatbot.ingestion.chunker import semantic_chunk_text as chunk_text
 
 log = logging.getLogger(__name__)
 

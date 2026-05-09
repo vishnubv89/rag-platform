@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     grader_max_loops: int = 3
 
     # Chunking
-    chunk_size: int = 300
-    chunk_overlap: int = 50
+    chunk_size: int = 512
+    chunk_overlap: int = 100
 
     # Admin
     admin_secret_key: str = "change-me"
