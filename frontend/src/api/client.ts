@@ -162,6 +162,22 @@ export async function getSuggestion(
   });
 }
 
+export async function listSessions(): Promise<{
+  sessions: { session_id: string; preview: string; message_count: number; last_active: string }[];
+}> {
+  return request("/chat/sessions");
+}
+
+export async function getSession(sessionId: string): Promise<{
+  session_id: string;
+  messages: {
+    role: string; content: string; log_id: number | null;
+    source_chunk_ids: number[]; sources: never[]; feedback: number | null; timestamp: string;
+  }[];
+}> {
+  return request(`/chat/sessions/${sessionId}`);
+}
+
 export async function submitFeedback(logId: number, value: 1 | -1): Promise<void> {
   await request(`/chat/${logId}/feedback`, {
     method: "POST",

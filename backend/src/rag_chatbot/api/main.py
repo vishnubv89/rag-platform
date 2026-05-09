@@ -367,6 +367,79 @@ async def chat_followup(req: FollowUpRequest, request: Request):
     return FollowUpResponse(suggestions=suggestions)
 
 
+@app.get("/chat/sessions")
+@limiter.limit("60/minute")
+async def list_sessions(request: Request):
+    user = await require_user(request)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT session_id,
+                   MIN(user_message)           AS preview,
+                   COUNT(*)                    AS message_count,
+                   MAX(created_at)             AS last_active
+            FROM chat_logs
+            WHERE user_id = $1
+            GROUP BY session_id
+            ORDER BY last_active DESC
+            LIMIT 50
+            """,
+            user["id"],
+        )
+    return {
+        "sessions": [
+            {
+                "session_id": str(r["session_id"]),
+                "preview": (r["preview"] or "")[:80],
+                "message_count": r["message_count"],
+                "last_active": r["last_active"].isoformat(),
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.get("/chat/sessions/{session_id}")
+@limiter.limit("60/minute")
+async def get_session(session_id: str, request: Request):
+    user = await require_user(request)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, user_message, assistant_response,
+                   source_chunk_ids, feedback, created_at
+            FROM chat_logs
+            WHERE session_id = $1 AND user_id = $2
+            ORDER BY created_at ASC
+            """,
+            UUID(session_id),
+            user["id"],
+        )
+    messages = []
+    for r in rows:
+        messages.append({
+            "role": "user",
+            "content": r["user_message"],
+            "log_id": None,
+            "source_chunk_ids": [],
+            "sources": [],
+            "feedback": None,
+            "timestamp": r["created_at"].isoformat(),
+        })
+        messages.append({
+            "role": "assistant",
+            "content": r["assistant_response"],
+            "log_id": r["id"],
+            "source_chunk_ids": list(r["source_chunk_ids"] or []),
+            "sources": [],
+            "feedback": r["feedback"],
+            "timestamp": r["created_at"].isoformat(),
+        })
+    return {"session_id": session_id, "messages": messages}
+
+
 @app.post("/ingest/text", response_model=IngestResponse)
 async def ingest_text_endpoint(req: IngestTextRequest):
     try:
