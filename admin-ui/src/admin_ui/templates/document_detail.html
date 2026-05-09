@@ -1,11 +1,20 @@
 {% extends "base.html" %}
 {% block title %} — {{ doc.get('title','Document') }}{% endblock %}
+
 {% block content %}
 <div class="mb-3">
   <a href="/documents" class="text-muted small"><i class="bi bi-arrow-left"></i> Back to Documents</a>
 </div>
+
+<!-- Doc metadata card -->
 <div class="card stat-card mb-4">
-  <div class="card-header bg-white fw-semibold">{{ doc.get('title','—') }}</div>
+  <div class="card-header bg-white fw-semibold d-flex align-items-center justify-content-between">
+    <span>{{ doc.get('title','—') }}</span>
+    <a href="/documents/{{ doc.get('id') }}?refresh=1" class="btn btn-sm btn-outline-secondary"
+       title="Re-extract topics with LLM">
+      <i class="bi bi-arrow-clockwise"></i> Refresh topics
+    </a>
+  </div>
   <div class="card-body">
     <dl class="row mb-0">
       <dt class="col-sm-2">ID</dt><dd class="col-sm-10">{{ doc.get('id') }}</dd>
@@ -16,23 +25,219 @@
   </div>
 </div>
 
-<div class="card stat-card">
-  <div class="card-header bg-white fw-semibold">Chunk Preview (first 20)</div>
-  <div class="card-body p-0">
-    <table class="table table-sm mb-0">
-      <thead class="table-light"><tr><th>#</th><th>Chunk ID</th><th>Preview</th></tr></thead>
-      <tbody>
-      {% for c in doc.get('chunks', []) %}
-      <tr>
-        <td class="text-muted">{{ c.chunk_index }}</td>
-        <td class="text-muted">{{ c.id }}</td>
-        <td><small>{{ c.text[:200] }}{% if c.text|length > 200 %}…{% endif %}</small></td>
-      </tr>
-      {% else %}
-      <tr><td colspan="3" class="text-center text-muted py-3">No chunks found.</td></tr>
+<!-- Topics section -->
+{% if topics %}
+<div class="card stat-card mb-4">
+  <div class="card-header bg-white fw-semibold d-flex align-items-center gap-2">
+    <i class="bi bi-diagram-3"></i> Topics Covered
+    <span class="badge bg-secondary ms-1" style="font-weight:400;font-size:.75rem;">{{ topics|length }} themes</span>
+    <span class="ms-auto text-muted" style="font-size:.8rem;font-weight:400;">
+      Double-click the mind map to expand
+    </span>
+  </div>
+  <div class="card-body">
+    <!-- Topic cards -->
+    <div class="d-flex flex-wrap gap-3 mb-4">
+      {% for t in topics %}
+      <div class="topic-card" style="border-left: 4px solid {{ t.color }};">
+        <div class="topic-label" style="color: {{ t.color }};">{{ t.label }}</div>
+        <div class="topic-subs">
+          {% for s in t.subtopics %}
+          <span class="sub-pill">{{ s }}</span>
+          {% endfor %}
+        </div>
+      </div>
       {% endfor %}
-      </tbody>
-    </table>
+    </div>
+
+    <!-- Mind map preview — double-click opens modal -->
+    <div id="mindmap-preview-wrap" ondblclick="openMindMap()"
+         title="Double-click to expand"
+         style="cursor:zoom-in;border:1px solid #e9ecef;border-radius:10px;
+                overflow:hidden;background:#fafafa;user-select:none;">
+      <svg id="mindmap-preview" width="100%" viewBox="0 0 800 420" style="display:block;"></svg>
+    </div>
+    <p class="text-muted text-center mt-2" style="font-size:.78rem;">
+      <i class="bi bi-fullscreen"></i> Double-click the map to open full-screen
+    </p>
   </div>
 </div>
+{% else %}
+<div class="card stat-card mb-4">
+  <div class="card-header bg-white fw-semibold"><i class="bi bi-diagram-3"></i> Topics Covered</div>
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-hourglass-split fs-3 d-block mb-2"></i>
+    No topics extracted yet — this document may have no chunks, or topic extraction failed.
+    <br><a href="/documents/{{ doc.get('id') }}?refresh=1" class="btn btn-sm btn-outline-primary mt-3">
+      <i class="bi bi-magic"></i> Extract Topics
+    </a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Full-screen mind map modal -->
+<div id="mindmap-modal" onclick="closeMindMap()"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;
+            align-items:center;justify-content:center;cursor:zoom-out;">
+  <div onclick="event.stopPropagation()"
+       style="background:#fff;border-radius:16px;padding:12px;
+              width:min(96vw,1100px);max-height:92vh;overflow:auto;position:relative;">
+    <button onclick="closeMindMap()"
+            style="position:absolute;top:10px;right:14px;border:none;background:none;
+                   font-size:1.4rem;color:#6c757d;cursor:pointer;">✕</button>
+    <svg id="mindmap-full" width="100%" viewBox="0 0 1000 600" style="display:block;"></svg>
+  </div>
+</div>
+
+<style>
+  .topic-card {
+    background:#fff;border:1px solid #e9ecef;border-radius:10px;
+    padding:.65rem .9rem;min-width:180px;max-width:280px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);
+  }
+  .topic-label { font-weight:600;font-size:.9rem;margin-bottom:.35rem; }
+  .topic-subs  { display:flex;flex-wrap:wrap;gap:.3rem; }
+  .sub-pill {
+    font-size:.72rem;padding:.15rem .45rem;border-radius:12px;
+    background:#f1f3f5;color:#495057;
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ── Mind-map data from server ─────────────────────────────────────────── */
+const DOC_TITLE = {{ doc.get('title','Document') | tojson }};
+const TOPICS = {{ topics | tojson }};
+
+/* ── Radial layout renderer ─────────────────────────────────────────────── */
+function renderMindMap(svgId, cx, cy, R1, R2, fontSize) {
+  const svg = document.getElementById(svgId);
+  if (!svg || !TOPICS.length) return;
+  svg.innerHTML = "";
+
+  const ns = "http://www.w3.org/2000/svg";
+
+  function el(tag, attrs, text) {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  /* ── Spoke lines (topic) ── */
+  TOPICS.forEach((t, i) => {
+    const angle = (i / TOPICS.length) * 2 * Math.PI - Math.PI / 2;
+    const tx = cx + R1 * Math.cos(angle);
+    const ty = cy + R1 * Math.sin(angle);
+
+    /* centre → topic line */
+    svg.appendChild(el("line", {
+      x1: cx, y1: cy, x2: tx, y2: ty,
+      stroke: t.color, "stroke-width": 2, "stroke-opacity": .5,
+    }));
+
+    /* subtopic lines + circles */
+    const nSubs = t.subtopics.length;
+    t.subtopics.forEach((s, j) => {
+      const spread = 0.35;
+      const sAngle = angle + (j - (nSubs - 1) / 2) * spread;
+      const sx = tx + R2 * Math.cos(sAngle);
+      const sy = ty + R2 * Math.sin(sAngle);
+
+      svg.appendChild(el("line", {
+        x1: tx, y1: ty, x2: sx, y2: sy,
+        stroke: t.color, "stroke-width": 1.2, "stroke-opacity": .35,
+      }));
+
+      svg.appendChild(el("circle", {
+        cx: sx, cy: sy, r: 4,
+        fill: t.color, "fill-opacity": .7,
+      }));
+
+      /* subtopic label */
+      const la = el("text", {
+        x: sx, y: sy,
+        "text-anchor": sx > cx ? "start" : "end",
+        "dominant-baseline": "middle",
+        "font-size": fontSize * 0.78,
+        fill: "#495057",
+        transform: `translate(${sx > cx ? 8 : -8},0)`,
+      }, s);
+      svg.appendChild(la);
+    });
+
+    /* topic circle */
+    svg.appendChild(el("circle", {
+      cx: tx, cy: ty, r: 28,
+      fill: t.color, "fill-opacity": .15,
+      stroke: t.color, "stroke-width": 2,
+    }));
+
+    /* topic label (wrapping via two tspan lines if needed) */
+    const words = t.label.split(" ");
+    const line1 = words.slice(0, Math.ceil(words.length / 2)).join(" ");
+    const line2 = words.slice(Math.ceil(words.length / 2)).join(" ");
+    const labelEl = el("text", {
+      x: tx, y: ty,
+      "text-anchor": "middle",
+      "dominant-baseline": "middle",
+      "font-size": fontSize,
+      "font-weight": "600",
+      fill: t.color,
+    });
+    if (line2) {
+      const ts1 = el("tspan", { x: tx, dy: `-${fontSize * 0.6}` }, line1);
+      const ts2 = el("tspan", { x: tx, dy: `${fontSize * 1.2}` }, line2);
+      labelEl.appendChild(ts1);
+      labelEl.appendChild(ts2);
+    } else {
+      labelEl.textContent = line1;
+    }
+    svg.appendChild(labelEl);
+  });
+
+  /* ── Centre node ── */
+  svg.appendChild(el("circle", {
+    cx, cy, r: 44,
+    fill: "#212529", "fill-opacity": .88,
+  }));
+
+  const centerWords = DOC_TITLE.replace(/\.[^.]+$/, "").split(/[\s_-]+/);
+  const centerText = el("text", {
+    x: cx, y: cy,
+    "text-anchor": "middle", "dominant-baseline": "middle",
+    "font-size": fontSize * 0.85, "font-weight": "700", fill: "#fff",
+  });
+  /* up to 2 lines */
+  const half = Math.ceil(centerWords.length / 2);
+  const cLine1 = centerWords.slice(0, half).join(" ");
+  const cLine2 = centerWords.slice(half).join(" ");
+  if (cLine2) {
+    centerText.appendChild(el("tspan", { x: cx, dy: `-${fontSize * 0.55}` }, cLine1));
+    centerText.appendChild(el("tspan", { x: cx, dy: `${fontSize * 1.1}` }, cLine2));
+  } else {
+    centerText.textContent = cLine1;
+  }
+  svg.appendChild(centerText);
+}
+
+/* ── Initial render (preview) ─────────────────────────────────────────── */
+document.addEventListener("DOMContentLoaded", () => {
+  renderMindMap("mindmap-preview", 400, 210, 150, 80, 11);
+});
+
+/* ── Modal helpers ────────────────────────────────────────────────────── */
+function openMindMap() {
+  const modal = document.getElementById("mindmap-modal");
+  modal.style.display = "flex";
+  renderMindMap("mindmap-full", 500, 300, 200, 110, 13);
+  document.addEventListener("keydown", escClose);
+}
+function closeMindMap() {
+  document.getElementById("mindmap-modal").style.display = "none";
+  document.removeEventListener("keydown", escClose);
+}
+function escClose(e) { if (e.key === "Escape") closeMindMap(); }
+</script>
 {% endblock %}

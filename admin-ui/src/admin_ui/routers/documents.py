@@ -29,17 +29,26 @@ async def list_documents(request: Request, page: int = 1):
 
 
 @router.get("/documents/{doc_id}")
-async def document_detail(request: Request, doc_id: int):
+async def document_detail(request: Request, doc_id: int, refresh: int = 0):
     try:
         doc = await client.get_doc(doc_id)
     except Exception as e:
         doc = {}
         request.state.error = str(e)
 
+    # Topics are fetched lazily — if not yet cached this triggers LLM extraction.
+    # Pass refresh=True when the user clicked "Refresh topics".
+    # On error (e.g. no chunks yet) we just show an empty state.
+    try:
+        topics_data = await client.get_doc_topics(doc_id, refresh=bool(refresh))
+        topics = topics_data.get("topics", [])
+    except Exception:
+        topics = []
+
     return request.app.state.templates.TemplateResponse(
         request,
         "document_detail.html",
-        {"doc": doc, "active_page": "documents"},
+        {"doc": doc, "topics": topics, "active_page": "documents"},
     )
 
 

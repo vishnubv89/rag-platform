@@ -125,6 +125,9 @@ async def list_docs(org_id: int | None = None, page: int = 1, limit: int = 20) -
 async def get_doc(doc_id: int) -> dict:
     return await _get(f"/admin/docs/{doc_id}")
 
+async def get_doc_topics(doc_id: int, refresh: bool = False) -> dict:
+    return await _get(f"/admin/docs/{doc_id}/topics", refresh=refresh if refresh else None)
+
 async def delete_doc(doc_id: int, org_id: int | None = None) -> None:
     await _delete(f"/admin/docs/{doc_id}", org_id=org_id)
 

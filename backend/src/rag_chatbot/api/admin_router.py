@@ -8,7 +8,9 @@ Groups:
   /admin/analytics    — chat logs and token usage
   /admin/system       — health and migrations
 """
+import asyncio
 import hashlib
+import json
 import os
 import secrets
 import time
@@ -20,6 +22,7 @@ from pydantic import BaseModel
 
 from rag_chatbot.api.deps import verify_admin_key
 from rag_chatbot.db.connection import get_pool, run_schema
+from rag_chatbot.llm.client import generate as _llm_generate
 
 Dep = Depends(verify_admin_key)
 
@@ -262,6 +265,150 @@ async def get_doc(doc_id: int):
             doc_id,
         )
     return {**dict(doc), "chunks": [dict(c) for c in chunks]}
+
+
+_TOPIC_COLORS = [
+    "#4dabf7", "#69db7c", "#ffa94d", "#da77f2",
+    "#ff6b6b", "#38d9a9", "#ffd43b", "#a9e34b",
+]
+
+_TOPICS_SYSTEM = (
+    "You are a document analyst. Given the text excerpts from a document, "
+    "identify the 5-8 main topics or themes covered. "
+    "For each topic provide 2-4 concise subtopic keywords. "
+    "Respond with ONLY a valid JSON array — no explanation, no markdown fences. "
+    'Format: [{"label":"Topic Name","subtopics":["subtopic1","subtopic2"]}, ...]'
+)
+
+# Common English stop words for keyword fallback
+_STOP = frozenset(
+    "a an the and or but in on at to of for is are was were be been being "
+    "have has had do does did will would could should may might shall can "
+    "with by from as into through during before after above below between "
+    "this that these those it its we they them their he she him her "
+    "i me my you your we our us not no nor so yet both either neither "
+    "just also only then than when where which who whom what how "
+    "all any each few more most other some such no nor not only own "
+    "same so than too very s t can will just don should now d ll m o re ve "
+    "figure table section et al e g i e vs".split()
+)
+
+
+def _keyword_topics(chunks: list, n_topics: int = 7) -> list[dict]:
+    """
+    Pure-Python fallback: extract topic clusters from chunk texts via
+    bigram frequency when the LLM is unavailable.
+    """
+    import re
+    from collections import Counter
+
+    all_text = " ".join(c["text"] for c in chunks).lower()
+    words = re.findall(r"[a-z][a-z\-]{2,}", all_text)
+    words = [w for w in words if w not in _STOP and len(w) > 3]
+
+    # Count unigrams and bigrams
+    uni = Counter(words)
+    bi  = Counter(
+        f"{words[i]} {words[i+1]}"
+        for i in range(len(words) - 1)
+        if words[i] not in _STOP and words[i+1] not in _STOP
+    )
+
+    # Top bigrams become topic labels
+    top_bigrams = [phrase for phrase, _ in bi.most_common(n_topics * 2)]
+    seen_words: set[str] = set()
+    topics: list[dict] = []
+    for phrase in top_bigrams:
+        if len(topics) >= n_topics:
+            break
+        w1, w2 = phrase.split()
+        if w1 in seen_words or w2 in seen_words:
+            continue
+        seen_words.update([w1, w2])
+        # Subtopics: other top unigrams contextually close (simple co-freq proxy)
+        subs = [w for w, _ in uni.most_common(50) if w not in seen_words and w not in {w1, w2}][:3]
+        seen_words.update(subs)
+        topics.append({
+            "label": phrase.title(),
+            "subtopics": [s.capitalize() for s in subs],
+        })
+
+    return topics
+
+
+@router.get("/docs/{doc_id}/topics")
+async def get_doc_topics(doc_id: int, refresh: bool = Query(False)):
+    """
+    Return topic clusters for a document.  Results are cached in the
+    documents.topics column; pass ?refresh=true to recompute.
+    LLM extraction is attempted first; falls back to keyword extraction
+    if the LLM quota is exhausted.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT id, title, topics FROM documents WHERE id=$1", doc_id
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Return cached unless caller wants a fresh extraction
+        if doc["topics"] is not None and not refresh:
+            raw = doc["topics"] if isinstance(doc["topics"], list) else json.loads(doc["topics"])
+            for i, t in enumerate(raw):
+                t["color"] = _TOPIC_COLORS[i % len(_TOPIC_COLORS)]
+            return {"doc_id": doc_id, "title": doc["title"], "topics": raw}
+
+        chunks = await conn.fetch(
+            "SELECT text FROM chunks WHERE doc_id=$1 ORDER BY chunk_index LIMIT 30",
+            doc_id,
+        )
+
+    if not chunks:
+        return {"doc_id": doc_id, "title": doc["title"], "topics": []}
+
+    topics: list[dict] = []
+
+    # ── Try LLM extraction first ────────────────────────────────────────────
+    try:
+        excerpt = "\n---\n".join(c["text"][:300] for c in chunks)[:6000]
+        prompt = f"Document title: {doc['title']}\n\nExcerpts:\n{excerpt}"
+        loop = asyncio.get_running_loop()
+        raw_response = await loop.run_in_executor(
+            None, lambda: _llm_generate(prompt, _TOPICS_SYSTEM, {"llm_provider": "gemini"})
+        )
+        clean = raw_response.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        parsed = json.loads(clean)
+        if isinstance(parsed, list):
+            topics = [
+                {
+                    "label": str(t.get("label", "")).strip(),
+                    "subtopics": [str(s).strip() for s in t.get("subtopics", [])[:4]],
+                    "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)],
+                }
+                for i, t in enumerate(parsed)
+                if t.get("label")
+            ][:8]
+    except Exception:
+        pass  # Fall through to keyword extraction
+
+    # ── Keyword fallback when LLM is unavailable ────────────────────────────
+    if not topics:
+        kw_topics = _keyword_topics(list(chunks))
+        topics = [
+            {**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]}
+            for i, t in enumerate(kw_topics)
+        ]
+
+    # Persist (without the transient color field)
+    topics_to_store = [{"label": t["label"], "subtopics": t["subtopics"]} for t in topics]
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE documents SET topics=$1 WHERE id=$2",
+            json.dumps(topics_to_store), doc_id,
+        )
+
+    return {"doc_id": doc_id, "title": doc["title"], "topics": topics}
 
 
 @router.delete("/docs/{doc_id}", status_code=204)
