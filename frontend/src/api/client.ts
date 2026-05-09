@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatResponse, DocDetail, DocListResponse, IngestResponse, Org, StreamEvent } from "../types";
 import { useAuthStore } from "../store/authStore";
+import { parseSSEChunk } from "../utils/sseParser";
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -61,16 +62,9 @@ export async function* sendChatStream(
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() ?? "";
-    for (const part of parts) {
-      const line = part.trim();
-      if (line.startsWith("data: ")) {
-        const raw = line.slice(6).trim();
-        if (raw) yield JSON.parse(raw) as StreamEvent;
-      }
-    }
+    const { events, remaining } = parseSSEChunk(buffer, decoder.decode(value, { stream: true }));
+    buffer = remaining;
+    for (const event of events) yield event;
   }
 }
 
