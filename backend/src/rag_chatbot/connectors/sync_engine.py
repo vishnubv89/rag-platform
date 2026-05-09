@@ -40,35 +40,45 @@ async def _existing_hashes(conn, connector_id: int) -> dict[str, tuple[int, str]
 
 
 async def _upsert_document(conn, doc, connector_id: int, org_id: int, existing_doc_id: int | None) -> int:
+    """
+    Insert or update a document + its chunks atomically.
+    If the text is empty or embedding fails, the whole operation is rolled
+    back — no orphaned 0-chunk document rows are created.
+    """
     now = datetime.now(timezone.utc)
     meta = json.dumps({**doc.metadata, "connector_id": connector_id})
 
-    if existing_doc_id:
-        await conn.execute(
-            """UPDATE documents SET title=$1, source=$2, metadata=$3,
-               content_hash=$4, last_synced_at=$5
-               WHERE id=$6""",
-            doc.title, doc.source_url, meta, doc.content_hash, now, existing_doc_id,
-        )
-        # delete old chunks
-        await conn.execute("DELETE FROM chunks WHERE doc_id=$1", existing_doc_id)
-        doc_id = existing_doc_id
-    else:
-        doc_id = await conn.fetchval(
-            """INSERT INTO documents (title, source, metadata, org_id, connector_id,
-               external_id, content_hash, last_synced_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id""",
-            doc.title, doc.source_url, meta, org_id, connector_id,
-            doc.external_id, doc.content_hash, now,
-        )
-
     chunks = chunk_text(doc.text)
-    if chunks:
-        embeddings = await embed_batch(chunks, task_type="RETRIEVAL_DOCUMENT")
+    if not chunks:
+        # Nothing to store — skip silently so the caller can count it as a no-op
+        return existing_doc_id or -1
+
+    embeddings = await embed_batch(chunks, task_type="RETRIEVAL_DOCUMENT")
+
+    async with conn.transaction():
+        if existing_doc_id:
+            await conn.execute(
+                """UPDATE documents SET title=$1, source=$2, metadata=$3,
+                   content_hash=$4, last_synced_at=$5, topics=NULL
+                   WHERE id=$6""",
+                doc.title, doc.source_url, meta, doc.content_hash, now, existing_doc_id,
+            )
+            await conn.execute("DELETE FROM chunks WHERE doc_id=$1", existing_doc_id)
+            doc_id = existing_doc_id
+        else:
+            doc_id = await conn.fetchval(
+                """INSERT INTO documents (title, source, metadata, org_id, connector_id,
+                   external_id, content_hash, last_synced_at)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id""",
+                doc.title, doc.source_url, meta, org_id, connector_id,
+                doc.external_id, doc.content_hash, now,
+            )
+
         await conn.executemany(
             "INSERT INTO chunks (doc_id, chunk_index, text, embedding) VALUES ($1,$2,$3,$4)",
             [(doc_id, i, chunk, emb) for i, (chunk, emb) in enumerate(zip(chunks, embeddings))],
         )
+
     return doc_id
 
 
