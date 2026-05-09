@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { listDocs, searchDocs, getDoc } from "../api/client";
+import { listDocs, searchDocs, getDoc, getDocTopics } from "../api/client";
 import { useChatStore } from "../store/chatStore";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { KnowledgeMindMap } from "./KnowledgeMindMap";
 import type { Doc } from "../types";
 
 function sourceLabel(source: string): string {
@@ -33,6 +34,7 @@ export function KnowledgeHub() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"map" | "chunks">("map");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // On mobile, track whether we're showing list or detail
@@ -50,6 +52,9 @@ export function KnowledgeHub() {
 
   // Reset selection when org changes
   useEffect(() => { setSelectedId(null); setPage(1); setQuery(""); }, [orgId]);
+
+  // Reset tab to "map" whenever a different document is selected
+  useEffect(() => { setActiveTab("map"); }, [selectedId]);
 
   const listKey = debouncedQ
     ? ["docs-search", orgId, debouncedQ]
@@ -69,6 +74,13 @@ export function KnowledgeHub() {
     queryFn: () => getDoc(selectedId!),
     enabled: selectedId !== null,
     staleTime: 60_000,
+  });
+
+  const { data: topicsData, isLoading: topicsLoading } = useQuery({
+    queryKey: ["doc-topics", selectedId],
+    queryFn: () => getDocTopics(selectedId!),
+    enabled: selectedId !== null,
+    staleTime: 5 * 60_000,
   });
 
   const items: Doc[] = data?.items ?? [];
@@ -191,8 +203,8 @@ export function KnowledgeHub() {
           {detail && !detailLoading && (
             <>
               {/* Detail header */}
-              <div className="px-4 py-4 border-b border-gray-100 bg-white">
-                <div className="flex items-start justify-between gap-4">
+              <div className="px-4 pt-4 pb-0 border-b border-gray-100 bg-white shrink-0">
+                <div className="flex items-start justify-between gap-4 mb-3">
                   <div className="flex items-start gap-3 min-w-0">
                     {isMobile && (
                       <button
@@ -207,16 +219,12 @@ export function KnowledgeHub() {
                     )}
                     <div className="min-w-0">
                       <h3 className="font-semibold text-gray-900 text-base leading-snug">{detail.title}</h3>
-                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
                         <span className="text-xs text-gray-400">{detail.chunks.length} chunks</span>
                         <span className="text-xs text-gray-400">{timeAgo(detail.created_at)}</span>
                         {detail.source && (
-                          <a
-                            href={detail.source}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline truncate max-w-xs"
-                          >
+                          <a href={detail.source} target="_blank" rel="noopener noreferrer"
+                             className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline truncate max-w-xs">
                             {sourceLabel(detail.source)} ↗
                           </a>
                         )}
@@ -224,29 +232,54 @@ export function KnowledgeHub() {
                     </div>
                   </div>
                   {!isMobile && (
-                  <button
-                    onClick={() => setSelectedId(null)}
-                    className="shrink-0 text-gray-400 hover:text-gray-600 text-lg leading-none"
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
+                    <button onClick={() => setSelectedId(null)}
+                            className="shrink-0 text-gray-400 hover:text-gray-600 text-lg leading-none"
+                            aria-label="Close">×</button>
                   )}
+                </div>
+
+                {/* Tab bar */}
+                <div className="flex gap-0">
+                  {(["map", "chunks"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className="px-4 py-2 text-xs font-medium border-b-2 transition-colors"
+                      style={{
+                        borderBottomColor: activeTab === tab ? "#6366f1" : "transparent",
+                        color: activeTab === tab ? "#6366f1" : "#9ca3af",
+                      }}
+                    >
+                      {tab === "map" ? "🗺 Mind Map" : "📄 Chunks"}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Chunks */}
-              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-                {detail.chunks.map((chunk) => (
-                  <div
-                    key={chunk.id}
-                    className="rounded-xl p-4 text-sm text-gray-700 leading-relaxed"
-                    style={{ background: "white", border: "1px solid #f0f0f0" }}
-                  >
-                    <div className="text-xs text-gray-400 mb-2 font-mono">chunk {chunk.chunk_index}</div>
-                    <p style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{chunk.text}</p>
+              {/* Tab content */}
+              <div className="flex-1 overflow-hidden flex flex-col">
+                {activeTab === "map" ? (
+                  <KnowledgeMindMap
+                    docTitle={detail.title}
+                    topics={topicsData?.topics ?? []}
+                    isLoading={topicsLoading}
+                  />
+                ) : (
+                  <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+                    {detail.chunks.length === 0 && (
+                      <div className="text-sm text-amber-600 bg-amber-50 rounded-xl px-4 py-3 border border-amber-100">
+                        ⚠ This document has no chunks — the file may be image-only, encrypted, or embedding failed during upload.
+                      </div>
+                    )}
+                    {detail.chunks.map((chunk) => (
+                      <div key={chunk.id} className="rounded-xl p-4 text-sm text-gray-700 leading-relaxed"
+                           style={{ background: "white", border: "1px solid #f0f0f0" }}>
+                        <div className="text-xs text-gray-400 mb-2 font-mono">chunk {chunk.chunk_index}</div>
+                        <p style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{chunk.text}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             </>
           )}

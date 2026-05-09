@@ -172,6 +172,14 @@ export async function getSession(sessionId: string): Promise<{
   return request(`/chat/sessions/${sessionId}`);
 }
 
+export async function getDocTopics(docId: number): Promise<{
+  doc_id: number;
+  title: string;
+  topics: { label: string; subtopics: string[]; color: string }[];
+}> {
+  return request(`/docs/${docId}/topics`);
+}
+
 export async function submitFeedback(logId: number, value: 1 | -1): Promise<void> {
   await request(`/chat/${logId}/feedback`, {
     method: "POST",

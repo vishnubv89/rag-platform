@@ -469,3 +469,94 @@ async def ingest_file_endpoint(file: UploadFile = File(...)):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ── Document topics (user-facing, cached) ────────────────────────────────────
+
+_TOPIC_COLORS = [
+    "#4dabf7", "#69db7c", "#ffa94d", "#da77f2",
+    "#ff6b6b", "#38d9a9", "#ffd43b", "#a9e34b",
+]
+
+_STOP = frozenset(
+    "a an the and or but in on at to of for is are was were be been being "
+    "have has had do does did will would could should may might shall can "
+    "with by from as into through during before after above below between "
+    "this that these those it its we they them their he she him her "
+    "i me my you your we our us not no nor so yet both either neither "
+    "just also only then than when where which who whom what how "
+    "all any each few more most other some such no nor not only own "
+    "same so than too very s t can will just don should now d ll m o re ve "
+    "figure table section et al e g i e vs".split()
+)
+
+
+def _keyword_topics(chunks: list[str], n_topics: int = 7) -> list[dict]:
+    import re
+    from collections import Counter
+    all_text = " ".join(chunks).lower()
+    words = re.findall(r"[a-z][a-z\-]{2,}", all_text)
+    words = [w for w in words if w not in _STOP and len(w) > 3]
+    uni = Counter(words)
+    bi = Counter(
+        f"{words[i]} {words[i+1]}"
+        for i in range(len(words) - 1)
+        if words[i] not in _STOP and words[i + 1] not in _STOP
+    )
+    seen: set[str] = set()
+    topics: list[dict] = []
+    for phrase, _ in bi.most_common(n_topics * 2):
+        if len(topics) >= n_topics:
+            break
+        w1, w2 = phrase.split()
+        if w1 in seen or w2 in seen:
+            continue
+        seen.update([w1, w2])
+        subs = [w for w, _ in uni.most_common(50) if w not in seen and w not in {w1, w2}][:3]
+        seen.update(subs)
+        topics.append({"label": phrase.title(), "subtopics": [s.capitalize() for s in subs]})
+    return topics
+
+
+@app.get("/docs/{doc_id}/topics")
+@limiter.limit("30/minute")
+async def get_doc_topics(request: Request, doc_id: int):
+    """
+    Return (or lazily compute) topic clusters for a document.
+    Results are cached in documents.topics — keyword extraction runs when
+    the column is NULL.  No LLM call is made from this endpoint.
+    """
+    await require_user(request)
+    pool = await get_pool()
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, title, topics FROM documents WHERE id=$1", doc_id
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if row["topics"] is not None:
+        raw = row["topics"] if isinstance(row["topics"], list) else json.loads(row["topics"])
+    else:
+        # Compute via keyword extraction and cache
+        async with pool.acquire() as conn:
+            chunks = await conn.fetch(
+                "SELECT text FROM chunks WHERE doc_id=$1 ORDER BY chunk_index LIMIT 30",
+                doc_id,
+            )
+        if not chunks:
+            return {"doc_id": doc_id, "title": row["title"], "topics": []}
+
+        raw = _keyword_topics([c["text"] for c in chunks])
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE documents SET topics=$1 WHERE id=$2",
+                json.dumps(raw), doc_id,
+            )
+
+    topics = [
+        {**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]}
+        for i, t in enumerate(raw)
+    ]
+    return {"doc_id": doc_id, "title": row["title"], "topics": topics}
