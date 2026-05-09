@@ -49,12 +49,14 @@ async def retriever_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 _GRADER_SYSTEM = (
-    "You are a strict relevance grader. Given a query and numbered document chunks, "
+    "You are a relevance grader. Given a query and numbered document chunks, "
     "respond with ONLY a JSON array of integer indices (0-based) of chunks that "
-    "DIRECTLY answer the query. Be conservative — if a chunk is only tangentially "
-    "related, exclude it. If you have any doubt, exclude it. "
-    "A chunk is relevant only if it contains specific information that addresses the query. "
-    "Examples: [0,2] means chunks 0 and 2 are relevant. [] means none are relevant. "
+    "are relevant to or help answer the query. Include a chunk if it contains "
+    "information useful for answering — partial relevance counts. Only exclude a "
+    "chunk if it is completely unrelated to the query topic. "
+    "For broad queries (e.g. 'summarize', 'what documents do you have', 'overview'), "
+    "include all chunks. "
+    "Examples: [0,1,2] means chunks 0, 1, and 2 are relevant. [] means none are relevant. "
     "No objects, no explanation — just the JSON integer array."
 )
 
@@ -85,7 +87,7 @@ async def grader_node(state: AgentState) -> dict:
     if not docs:
         return {"grading_passed": False, "loop_count": state["loop_count"] + 1}
 
-    doc_list = "\n".join(f"[{i}] {d['text'][:300]}" for i, d in enumerate(docs))
+    doc_list = "\n".join(f"[{i}] {d['text'][:600]}" for i, d in enumerate(docs))
     prompt = f"Query: {query}\n\nDocuments:\n{doc_list}"
 
     loop = asyncio.get_running_loop()
