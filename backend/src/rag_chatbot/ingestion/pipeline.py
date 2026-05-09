@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rag_chatbot.db.connection import get_pool, run_schema
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
-from rag_chatbot.ingestion.chunker import chunk_text
+from rag_chatbot.ingestion.chunker import semantic_chunk_text as chunk_text
 from rag_chatbot.ingestion.loader import load_file
 
 
