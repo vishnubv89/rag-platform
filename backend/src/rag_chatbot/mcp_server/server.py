@@ -54,41 +54,6 @@ async def ingest_document(title: str, text: str, source: str = "") -> dict:
     return await ingest_text(text=text, title=title, source=source)
 
 
-@mcp.tool()
-async def rerank_results(
-    docs: list[dict], query: str, top_k: int = 5
-) -> list[dict]:
-    """
-    Re-score and re-rank retrieved chunks by cosine similarity to the query embedding.
-
-    Args:
-        docs:  List of chunk dicts from hybrid_search (must have 'text' field).
-        query: The original query string.
-        top_k: How many top results to return.
-
-    Returns:
-        Re-ranked list of chunks.
-    """
-    from rag_chatbot.embeddings.gemini_embedder import embed_text
-    import math
-
-    query_vec = await embed_text(query, task_type="RETRIEVAL_QUERY")
-
-    async def score(doc: dict) -> float:
-        chunk_vec = await embed_text(doc["text"], task_type="RETRIEVAL_DOCUMENT")
-        dot = sum(a * b for a, b in zip(query_vec, chunk_vec))
-        mag_q = math.sqrt(sum(a * a for a in query_vec))
-        mag_c = math.sqrt(sum(b * b for b in chunk_vec))
-        return dot / (mag_q * mag_c + 1e-9)
-
-    scored = [(doc, await score(doc)) for doc in docs]
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return [
-        {**doc, "rerank_score": round(s, 4)}
-        for doc, s in scored[:top_k]
-    ]
-
-
 if __name__ == "__main__":
     async def _setup():
         await run_schema()
