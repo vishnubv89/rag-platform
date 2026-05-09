@@ -421,7 +421,7 @@ async def analytics_logs(
             f"""
             SELECT id, session_id, LEFT(user_message,100) AS user_message,
                    LEFT(assistant_response,100) AS assistant_response,
-                   loop_count, prompt_tokens, completion_tokens, latency_ms, created_at
+                   loop_count, latency_ms, created_at
             FROM   chat_logs WHERE {where}
             ORDER  BY created_at DESC
             LIMIT  ${len(params)-1} OFFSET ${len(params)}
@@ -453,9 +453,8 @@ async def token_usage(
         rows = await conn.fetch(
             """
             SELECT DATE(created_at) AS day,
-                   SUM(prompt_tokens)::INT     AS prompt_tokens,
-                   SUM(completion_tokens)::INT AS completion_tokens,
-                   COUNT(*)::INT               AS chats
+                   COUNT(*)::INT               AS chats,
+                   COALESCE(AVG(latency_ms),0)::INT AS avg_latency_ms
             FROM   chat_logs
             WHERE  org_id=$1 AND created_at >= now() - ($2 || ' days')::INTERVAL
             GROUP  BY DATE(created_at)
