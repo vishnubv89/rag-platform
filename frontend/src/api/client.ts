@@ -162,6 +162,13 @@ export async function getSuggestion(
   });
 }
 
+export async function submitFeedback(logId: number, value: 1 | -1): Promise<void> {
+  await request(`/chat/${logId}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ value }),
+  });
+}
+
 export async function getFollowUps(
   messages: { role: string; content: string }[],
   orgId: number | null,

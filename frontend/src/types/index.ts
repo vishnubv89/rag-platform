@@ -13,6 +13,8 @@ export interface ChatMessage {
   sources: SourceDoc[];
   loopCount: number;
   timestamp: Date;
+  logId?: number;         // chat_logs.id — used for feedback
+  feedback?: 1 | -1;     // user's vote, set locally after submission
 }
 
 export interface Org {
@@ -32,7 +34,7 @@ export interface ChatResponse {
 
 export type StreamEvent =
   | { type: "token"; content: string }
-  | { type: "done"; answer: string; source_chunk_ids: number[]; sources: SourceDoc[]; loop_count: number; session_id: string }
+  | { type: "done"; log_id: number | null; answer: string; source_chunk_ids: number[]; sources: SourceDoc[]; loop_count: number; session_id: string }
   | { type: "error"; message: string };
 
 export interface IngestResponse {

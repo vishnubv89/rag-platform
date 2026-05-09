@@ -51,6 +51,7 @@ export function useChat() {
             sources: event.sources ?? [],
             loopCount: event.loop_count,
             timestamp: new Date(),
+            logId: event.log_id ?? undefined,
           };
           addMessage(assistantMsg);
 

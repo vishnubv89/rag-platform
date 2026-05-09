@@ -223,14 +223,16 @@ async def chat_stream(req: ChatRequest, request: Request):
 
         latency_ms = int((time.monotonic() - t0) * 1000)
 
+        log_id: int | None = None
         async with pool.acquire() as conn:
             if org_id is not None:
-                await conn.execute(
+                log_id = await conn.fetchval(
                     """
                     INSERT INTO chat_logs
                         (org_id, session_id, user_message, assistant_response,
                          source_chunk_ids, loop_count, latency_ms, user_id)
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                    RETURNING id
                     """,
                     org_id,
                     UUID(session_id),
@@ -242,13 +244,34 @@ async def chat_stream(req: ChatRequest, request: Request):
                     user["id"],
                 )
 
-        yield f"data: {json.dumps({'type': 'done', 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'log_id': log_id, 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class FeedbackRequest(BaseModel):
+    value: int  # 1 = thumbs up, -1 = thumbs down
+
+
+@app.post("/chat/{log_id}/feedback", status_code=204)
+@limiter.limit("60/minute")
+async def submit_feedback(log_id: int, req: FeedbackRequest, request: Request):
+    await require_user(request)
+    if req.value not in (1, -1):
+        raise HTTPException(status_code=422, detail="value must be 1 or -1")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        updated = await conn.fetchval(
+            "UPDATE chat_logs SET feedback=$1 WHERE id=$2 RETURNING id",
+            req.value,
+            log_id,
+        )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Log not found")
 
 
 _SUGGEST_SYSTEM = (

@@ -388,7 +388,9 @@ async def analytics_summary(
             SELECT COUNT(*) AS total_chats,
                    COALESCE(SUM(prompt_tokens),0) AS total_prompt_tokens,
                    COALESCE(SUM(completion_tokens),0) AS total_completion_tokens,
-                   COALESCE(AVG(latency_ms),0)::INT AS avg_latency_ms
+                   COALESCE(AVG(latency_ms),0)::INT AS avg_latency_ms,
+                   COUNT(*) FILTER (WHERE feedback = 1)  AS thumbs_up,
+                   COUNT(*) FILTER (WHERE feedback = -1) AS thumbs_down
             FROM chat_logs WHERE {where}
             """,
             *params,
