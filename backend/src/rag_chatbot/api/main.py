@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import json
 from pathlib import Path
 import tempfile
 import time
@@ -6,6 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -170,6 +172,82 @@ async def chat(req: ChatRequest, request: Request):
         sources=final_state.get("sources", []),
         loop_count=final_state["loop_count"],
         session_id=session_id,
+    )
+
+
+@app.post("/chat/stream")
+@limiter.limit("20/minute")
+async def chat_stream(req: ChatRequest, request: Request):
+    user = await require_user(request)
+    session_id = req.session_id or str(uuid4())
+    messages = req.history + [{"role": "user", "content": req.message}]
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        org_id = req.org_id or await conn.fetchval(
+            "SELECT id FROM organizations WHERE slug='default'"
+        )
+        rows = await conn.fetch(
+            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
+        ) if org_id else []
+    llm_config = {r["key"]: r["value"] for r in rows}
+
+    initial_state = {
+        "messages": messages,
+        "query": req.message,
+        "retrieved_docs": [],
+        "grading_passed": False,
+        "loop_count": 0,
+        "answer": "",
+        "source_chunk_ids": [],
+        "sources": [],
+        "skip_retrieval": False,
+        "llm_config": llm_config,
+        "org_id": org_id,
+    }
+
+    async def event_generator():
+        t0 = time.monotonic()
+        final_state: dict = {}
+        try:
+            async for event in rag_graph.astream_events(initial_state, version="v2"):
+                if event["event"] == "on_custom_event" and event["name"] == "stream_token":
+                    token = event["data"].get("token", "")
+                    if token:
+                        yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                elif event["event"] == "on_chain_end" and event["name"] == "LangGraph":
+                    final_state = event["data"].get("output", {})
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            return
+
+        latency_ms = int((time.monotonic() - t0) * 1000)
+
+        async with pool.acquire() as conn:
+            if org_id is not None:
+                await conn.execute(
+                    """
+                    INSERT INTO chat_logs
+                        (org_id, session_id, user_message, assistant_response,
+                         source_chunk_ids, loop_count, latency_ms, user_id)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                    """,
+                    org_id,
+                    UUID(session_id),
+                    req.message,
+                    final_state.get("answer", ""),
+                    final_state.get("source_chunk_ids", []),
+                    final_state.get("loop_count", 0),
+                    latency_ms,
+                    user["id"],
+                )
+
+        yield f"data: {json.dumps({'type': 'done', 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

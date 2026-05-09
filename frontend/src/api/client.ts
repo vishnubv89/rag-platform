@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatResponse, DocDetail, DocListResponse, IngestResponse, Org } from "../types";
+import type { ChatMessage, ChatResponse, DocDetail, DocListResponse, IngestResponse, Org, StreamEvent } from "../types";
 import { useAuthStore } from "../store/authStore";
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -37,6 +37,41 @@ export async function sendChat(
       session_id: sessionId,
     }),
   });
+}
+
+export async function* sendChatStream(
+  message: string,
+  history: ChatMessage[],
+  orgId: number | null,
+  sessionId: string,
+): AsyncGenerator<StreamEvent> {
+  const apiHistory = history.map((m) => ({ role: m.role, content: m.content }));
+  const res = await fetch(`${BASE}/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    credentials: "include",
+    body: JSON.stringify({ message, history: apiHistory, org_id: orgId, session_id: sessionId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.trim();
+      if (line.startsWith("data: ")) {
+        const raw = line.slice(6).trim();
+        if (raw) yield JSON.parse(raw) as StreamEvent;
+      }
+    }
+  }
 }
 
 export async function ingestFile(file: File): Promise<IngestResponse> {

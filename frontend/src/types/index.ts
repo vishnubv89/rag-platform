@@ -30,6 +30,11 @@ export interface ChatResponse {
   session_id: string;
 }
 
+export type StreamEvent =
+  | { type: "token"; content: string }
+  | { type: "done"; answer: string; source_chunk_ids: number[]; sources: SourceDoc[]; loop_count: number; session_id: string }
+  | { type: "error"; message: string };
+
 export interface IngestResponse {
   doc_id: number;
   title: string;

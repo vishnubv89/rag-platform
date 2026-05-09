@@ -14,7 +14,7 @@ const SUGGESTIONS = [
 
 export function ChatWindow() {
   const { messages } = useChatStore();
-  const { send, loading, error, suggestions } = useChat();
+  const { send, loading, error, suggestions, streamingContent } = useChat();
   const [showUpload, setShowUpload] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -69,12 +69,24 @@ export function ChatWindow() {
             {loading && (
               <div className="flex justify-start mb-4">
                 <div
-                  className="px-4 py-3 rounded-2xl rounded-bl-sm"
-                  style={{ background: "#f7f7f8", border: "1px solid #e8e8ea" }}
+                  className="max-w-[72%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
+                  style={{ background: "#ffffff", color: "#111827", border: "1px solid #e8e8ea", borderRadius: "4px 16px 16px 16px" }}
                 >
-                  <span className="typing-dot" style={{ color: "#9ca3af" }} />
-                  <span className="typing-dot mx-1" style={{ color: "#9ca3af" }} />
-                  <span className="typing-dot" style={{ color: "#9ca3af" }} />
+                  {streamingContent ? (
+                    <>
+                      {streamingContent}
+                      <span
+                        className="inline-block w-0.5 h-4 ml-0.5 align-middle animate-pulse"
+                        style={{ background: "#6b7280" }}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <span className="typing-dot" style={{ color: "#9ca3af" }} />
+                      <span className="typing-dot mx-1" style={{ color: "#9ca3af" }} />
+                      <span className="typing-dot" style={{ color: "#9ca3af" }} />
+                    </>
+                  )}
                 </div>
               </div>
             )}

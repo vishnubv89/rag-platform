@@ -8,6 +8,7 @@ app_config table in the DB):
              (also works for OpenAI, Groq, Together AI, Ollama, etc.
               by overriding nvidia_base_url / nvidia_api_key in settings)
 """
+from typing import Generator
 import anthropic as _anthropic
 import openai as _openai
 from google import genai
@@ -99,3 +100,67 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
         ),
     )
     return response.text.strip()
+
+
+def stream_generate(
+    prompt: str, system: str = "", config: dict | None = None
+) -> Generator[str, None, None]:
+    """Yield text chunks from the configured LLM provider (streaming).
+
+    Supports the same config keys as generate(). Falls back to the full
+    response as a single chunk if the provider does not support streaming.
+    """
+    cfg = config or {}
+    provider = cfg.get("llm_provider") or settings.llm_provider
+
+    if provider == "anthropic":
+        api_key = cfg.get("anthropic_api_key") or settings.anthropic_api_key
+        if not api_key:
+            raise ValueError("No Anthropic API key. Set it in Admin → Settings.")
+        model = cfg.get("anthropic_model") or settings.anthropic_model
+        with _anthropic_c(api_key).messages.stream(
+            model=model,
+            max_tokens=1024,
+            system=system or "You are a helpful assistant.",
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
+        return
+
+    if provider == "nvidia":
+        api_key = cfg.get("nvidia_api_key") or settings.nvidia_api_key
+        if not api_key:
+            raise ValueError("No NVIDIA API key. Set it in Admin → Settings.")
+        model = cfg.get("nvidia_model") or settings.nvidia_model
+        base_url = cfg.get("nvidia_base_url") or settings.nvidia_base_url
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        stream = _openai_c(base_url, api_key).chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=1024,
+            temperature=0.0,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+        return
+
+    # Default: Gemini
+    api_key = cfg.get("gemini_api_key") or settings.gemini_api_key
+    model = cfg.get("llm_model") or settings.llm_model
+    for chunk in _gemini(api_key).models.generate_content_stream(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system or None,
+            temperature=0.0,
+        ),
+    ):
+        if chunk.text:
+            yield chunk.text

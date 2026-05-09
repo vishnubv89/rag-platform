@@ -9,7 +9,10 @@ import asyncio
 import json
 import re
 
-from rag_chatbot.llm.client import generate as _generate
+from langchain_core.callbacks import adispatch_custom_event
+from langchain_core.runnables import RunnableConfig
+
+from rag_chatbot.llm.client import generate as _generate, stream_generate as _stream_generate
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.agent.state import AgentState
 
@@ -126,6 +129,35 @@ async def rewriter_node(state: AgentState) -> dict:
 # Generator
 # ---------------------------------------------------------------------------
 
+async def _stream_llm(
+    prompt: str, system: str, cfg: dict, config: RunnableConfig
+) -> str:
+    """Run stream_generate in a thread, dispatch each token as a custom event,
+    and return the full accumulated text."""
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    chunks: list[str] = []
+
+    def _run() -> None:
+        try:
+            for chunk in _stream_generate(prompt, system, cfg):
+                chunks.append(chunk)
+                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    fut = loop.run_in_executor(None, _run)
+
+    while True:
+        chunk = await queue.get()
+        if chunk is None:
+            break
+        await adispatch_custom_event("stream_token", {"token": chunk}, config=config)
+
+    await fut
+    return "".join(chunks)
+
+
 _GENERATOR_SYSTEM = (
     "You are a knowledgeable assistant. Answer the user's question using ONLY the "
     "context provided. Answer directly and conversationally — never mention that you "
@@ -140,7 +172,7 @@ _GENERATOR_SYSTEM = (
 _CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
 
 
-async def generator_node(state: AgentState) -> dict:
+async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
     query = state["messages"][-1]["content"]
     docs = state["retrieved_docs"]
     cfg = state.get("llm_config", {})
@@ -157,10 +189,7 @@ async def generator_node(state: AgentState) -> dict:
         prompt = f"Question: {query}\n\nContext:\n{context}"
         system = _GENERATOR_SYSTEM
 
-    loop = asyncio.get_running_loop()
-    answer = await loop.run_in_executor(
-        None, lambda: _generate(prompt, system, cfg)
-    )
+    answer = await _stream_llm(prompt, system, cfg, config)
 
     sources = [
         {
@@ -184,7 +213,7 @@ async def generator_node(state: AgentState) -> dict:
 # Clarify — fires when grading exhausted without finding relevant docs
 # ---------------------------------------------------------------------------
 
-async def clarify_node(state: AgentState) -> dict:
+async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
     query = state["messages"][-1]["content"]
     cfg = state.get("llm_config", {})
     system = (
@@ -194,10 +223,7 @@ async def clarify_node(state: AgentState) -> dict:
         "they're looking for — perhaps they meant something different, or there's a "
         "related topic in the knowledge base that would help. Keep it brief and friendly."
     )
-    loop = asyncio.get_running_loop()
-    answer = await loop.run_in_executor(
-        None, lambda: _generate(f"User asked: {query}", system, cfg)
-    )
+    answer = await _stream_llm(f"User asked: {query}", system, cfg, config)
     return {
         "answer": answer,
         "source_chunk_ids": [],
