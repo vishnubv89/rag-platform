@@ -15,6 +15,7 @@ from langchain_core.runnables import RunnableConfig
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.llm.client import generate as _generate, stream_generate as _stream_generate
 from rag_chatbot.retrieval.vector_store import hybrid_search
+from rag_chatbot.connectors.snow_token_exchange import exchange_for_snow_token, snow_kb_search
 from rag_chatbot.agent.state import AgentState
 
 
@@ -52,8 +53,92 @@ async def intent_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 async def retriever_node(state: AgentState) -> dict:
-    docs = await hybrid_search(state["query"], org_id=state.get("org_id"))
+    """
+    Retrieve relevant chunks for the current query.
+
+    Primary path: hybrid (vector + BM25) search against pgvector.
+
+    OBO path (when user authenticated via Zitadel):
+      1. Fetch the connector configs for the org that have OBO configured.
+      2. Exchange the user's Zitadel token for a per-connector ServiceNow token.
+      3. Run a live KB search against ServiceNow using that token.
+      4. Merge live results with pgvector results, deduplicating by external_id.
+
+    If OBO exchange fails (unconfigured or SN error), falls back to pgvector only.
+    """
+    org_id = state.get("org_id")
+    query = state["query"]
+    zitadel_token = state.get("user_zitadel_token")
+
+    # Always run the pgvector search
+    docs = await hybrid_search(query, org_id=org_id)
+
+    # OBO supplement — only when user has a Zitadel token
+    if zitadel_token and org_id:
+        obo_docs = await _obo_search(query, zitadel_token, org_id)
+        if obo_docs:
+            docs = _merge_docs(docs, obo_docs)
+
     return {"retrieved_docs": docs}
+
+
+async def _obo_search(query: str, zitadel_token: str, org_id: int) -> list[dict]:
+    """
+    Fetch OBO-capable connector configs for the org, exchange tokens, and
+    run live ServiceNow KB searches.  Returns [] on any failure.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT config
+               FROM connectors
+               WHERE org_id = $1
+                 AND connector_type = 'servicenow'
+                 AND is_active = TRUE
+                 AND (config->>'obo_client_id') IS NOT NULL
+                 AND (config->>'obo_client_id') != ''""",
+            org_id,
+        )
+
+    if not rows:
+        return []
+
+    import json as _json
+    obo_docs: list[dict] = []
+    for row in rows:
+        cfg = row["config"] if isinstance(row["config"], dict) else _json.loads(row["config"])
+        snow_token = await exchange_for_snow_token(zitadel_token, cfg)
+        if not snow_token:
+            continue
+        live = await snow_kb_search(
+            query,
+            snow_token,
+            cfg["instance_url"],
+            kb_sys_id=cfg.get("kb_sys_id"),
+        )
+        obo_docs.extend(live)
+
+    return obo_docs
+
+
+def _merge_docs(pgvector_docs: list[dict], obo_docs: list[dict]) -> list[dict]:
+    """
+    Merge OBO live results into pgvector results, deduplicating by external_id.
+    pgvector results take precedence (they are already ranked); OBO results are
+    appended for articles not already present.
+    """
+    seen: set[str] = {
+        d["external_id"] for d in pgvector_docs if d.get("external_id")
+    }
+    merged = list(pgvector_docs)
+    for doc in obo_docs:
+        ext_id = doc.get("external_id")
+        if ext_id and ext_id in seen:
+            continue
+        if ext_id:
+            seen.add(ext_id)
+        merged.append(doc)
+    return merged
 
 
 # ---------------------------------------------------------------------------

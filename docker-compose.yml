@@ -97,6 +97,45 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # Zitadel — lightweight OIDC / OAuth2 identity provider
+  #
+  # Admin UI:  http://localhost:8088
+  # First-run credentials (change after setup):
+  #   Username: zitadel-admin@zitadel.localhost
+  #   Password: Password1!
+  #
+  # Zitadel creates its own "zitadel" database inside the existing postgres
+  # instance on first boot (the "rag" postgres user is a superuser so it has
+  # CREATE DATABASE rights).  Subsequent boots detect the DB and skip init.
+  # ---------------------------------------------------------------------------
+  zitadel:
+    restart: unless-stopped
+    image: ghcr.io/zitadel/zitadel:latest
+    command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
+    container_name: rag_zitadel
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: rag
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: rag_secret
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: rag
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: rag_secret
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALPORT: "8088"
+      ZITADEL_EXTERNALDOMAIN: localhost
+      # First-instance bootstrap — ignored after first run
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: zitadel-admin@zitadel.localhost
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Password1!
+    ports:
+      - "8088:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
   backups:

@@ -42,10 +42,15 @@ class Settings(BaseSettings):
     ]
     app_env: str = "development"
 
-    # Auth / JWT
+    # Auth / JWT (local password login)
     jwt_secret: str = "change-me-jwt-secret"
     jwt_access_expire_minutes: int = 15
     jwt_refresh_expire_days: int = 7
+
+    # Zitadel OIDC (SSO login)
+    # Set to the Zitadel issuer URL, e.g. http://localhost:8088
+    # Leave empty to disable OIDC token acceptance.
+    zitadel_issuer: str = ""
 
 
 settings = Settings()

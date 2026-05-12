@@ -43,26 +43,72 @@ def _decode_bearer(request: Request) -> dict:
     return decode_access_token(auth[7:])
 
 
+def extract_zitadel_token(request: Request) -> str | None:
+    """
+    Return the raw Bearer token only when it is a Zitadel RS256 JWT.
+    Returns None for local HS256 tokens or when no Authorization header exists.
+
+    Used by chat endpoints to attach the Zitadel token to AgentState so the
+    retriever can perform OBO token exchange with ServiceNow.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    raw = auth[7:]
+    try:
+        header = jwt.get_unverified_header(raw)
+        # Local tokens use HS256; Zitadel issues RS256
+        if header.get("alg") == "RS256":
+            return raw
+    except jwt.DecodeError:
+        pass
+    return None
+
+
 async def require_user(request: Request) -> dict:
-    """Extract and validate Bearer token; return user dict."""
+    """
+    Extract and validate a Bearer token; return a user dict.
+
+    Validation order
+    ----------------
+    1. Local HS256 JWT (email+password login) — fast, no network call.
+    2. Zitadel RS256 OIDC JWT — only attempted when ZITADEL_ISSUER is set
+       and the local decode fails.  OIDC users are not looked up in the local
+       users table; their profile comes from the token claims.
+
+    The returned dict always contains: id, email, name, role, org_id, is_active.
+    """
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     token = auth[7:]
+
+    # --- 1. Try local HS256 ---
     try:
         from rag_chatbot.auth.tokens import decode_access_token
         payload = decode_access_token(token)
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, email, name, role, org_id, is_active FROM users WHERE id=$1",
+                int(payload["sub"]),
+            )
+        if not row or not row["is_active"]:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        return dict(row)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError:
+        pass  # fall through to OIDC
+
+    # --- 2. Try Zitadel OIDC (RS256) ---
+    from rag_chatbot.auth.oidc import oidc_enabled, validate_oidc_token
+    if not oidc_enabled():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, email, name, role, org_id, is_active FROM users WHERE id=$1",
-            int(payload["sub"]),
-        )
-    if not row or not row["is_active"]:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return dict(row)
+    try:
+        return await validate_oidc_token(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))

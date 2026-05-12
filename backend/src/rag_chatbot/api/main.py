@@ -19,7 +19,7 @@ from rag_chatbot.db.connection import run_schema, close_pool, get_pool
 from rag_chatbot.agent.graph import rag_graph
 from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
 from rag_chatbot.api.admin_router import router as admin_router
-from rag_chatbot.api.deps import require_user
+from rag_chatbot.api.deps import require_user, extract_zitadel_token
 from rag_chatbot.auth.router import router as auth_router
 from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
 from rag_chatbot.retrieval.vector_store import hybrid_search
@@ -140,6 +140,7 @@ async def chat(req: ChatRequest, request: Request):
         "kb_overview": False,
         "llm_config": {},
         "org_id": None,
+        "user_zitadel_token": extract_zitadel_token(request),
     }
     # Fetch org config to drive provider/model selection at runtime
     pool = await get_pool()
@@ -220,6 +221,7 @@ async def chat_stream(req: ChatRequest, request: Request):
         "kb_overview": False,
         "llm_config": llm_config,
         "org_id": org_id,
+        "user_zitadel_token": extract_zitadel_token(request),
     }
 
     async def event_generator():
