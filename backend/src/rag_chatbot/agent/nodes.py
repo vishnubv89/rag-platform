@@ -12,6 +12,7 @@ import re
 from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.runnables import RunnableConfig
 
+from rag_chatbot.db.connection import get_pool
 from rag_chatbot.llm.client import generate as _generate, stream_generate as _stream_generate
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.agent.state import AgentState
@@ -20,6 +21,12 @@ from rag_chatbot.agent.state import AgentState
 # ---------------------------------------------------------------------------
 # Intent — lightweight keyword check, no LLM call
 # ---------------------------------------------------------------------------
+
+_KB_OVERVIEW_RE = re.compile(
+    r"(summarize|summary|list|overview|what.*(document|topic|know|cover|help)|"
+    r"show.*document|what.*knowledge.base|what.*in.*kb|what.*can.*you.*help)",
+    re.IGNORECASE,
+)
 
 _CHITCHAT_RE = re.compile(
     r"^\s*(hi+|hello+|hey+|howdy|greetings|good\s*(morning|afternoon|evening|day)|"
@@ -31,8 +38,13 @@ _CHITCHAT_RE = re.compile(
 
 
 async def intent_node(state: AgentState) -> dict:
-    query = state["messages"][-1]["content"]
-    return {"skip_retrieval": bool(_CHITCHAT_RE.match(query.strip()))}
+    query = state["messages"][-1]["content"].strip()
+    is_chitchat = bool(_CHITCHAT_RE.match(query))
+    is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat
+    return {
+        "skip_retrieval": is_chitchat or is_overview,
+        "kb_overview": is_overview,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +170,64 @@ async def _stream_llm(
 
     await fut
     return "".join(chunks)
+
+
+# ---------------------------------------------------------------------------
+# KB Overview — fires when user asks what's in the knowledge base
+# ---------------------------------------------------------------------------
+
+_KB_OVERVIEW_SYSTEM = (
+    "You are a helpful assistant. The user wants to know what topics their "
+    "knowledge base covers. Based ONLY on the document titles listed below, "
+    "write a concise, friendly overview that groups related documents into "
+    "themes. Use bullet points for the themes. Do not invent topics not "
+    "reflected in the titles. End with a one-line offer to answer specific questions."
+)
+
+
+async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
+    """Fetch all doc titles for the org and summarise them — no retrieval needed."""
+    org_id = state.get("org_id")
+    cfg = state.get("llm_config", {})
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT title
+               FROM documents
+               WHERE ($1::bigint IS NULL OR org_id = $1)
+                 AND (SELECT COUNT(*) FROM chunks WHERE doc_id = documents.id) > 0
+               ORDER BY title""",
+            org_id,
+        )
+
+    if not rows:
+        answer = (
+            "Your knowledge base is currently empty — no documents have been "
+            "ingested yet. Upload files or connect a data source to get started."
+        )
+        return {
+            "answer": answer,
+            "source_chunk_ids": [],
+            "sources": [],
+            "messages": [{"role": "assistant", "content": answer}],
+        }
+
+    doc_list = "\n".join(f"- {r['title']}" for r in rows)
+    prompt = (
+        f"Here are the {len(rows)} documents in the knowledge base:\n\n"
+        f"{doc_list}\n\n"
+        "Provide a concise overview of the topics covered, grouping related documents."
+    )
+
+    answer = await _stream_llm(prompt, _KB_OVERVIEW_SYSTEM, cfg, config)
+
+    return {
+        "answer": answer,
+        "source_chunk_ids": [],
+        "sources": [],
+        "messages": [{"role": "assistant", "content": answer}],
+    }
 
 
 _GENERATOR_SYSTEM = (

@@ -137,6 +137,7 @@ async def chat(req: ChatRequest, request: Request):
         "source_chunk_ids": [],
         "sources": [],
         "skip_retrieval": False,
+        "kb_overview": False,
         "llm_config": {},
         "org_id": None,
     }
@@ -216,6 +217,7 @@ async def chat_stream(req: ChatRequest, request: Request):
         "source_chunk_ids": [],
         "sources": [],
         "skip_retrieval": False,
+        "kb_overview": False,
         "llm_config": llm_config,
         "org_id": org_id,
     }

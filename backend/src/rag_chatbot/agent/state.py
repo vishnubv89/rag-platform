@@ -30,6 +30,9 @@ class AgentState(TypedDict):
     # True when the query is a greeting/chitchat — skip retrieval
     skip_retrieval: bool
 
+    # True when the query is asking for a KB overview/summary — bypass retrieval
+    kb_overview: bool
+
     # Runtime LLM config from app_config table (overrides env defaults)
     llm_config: dict
 
