@@ -51,13 +51,13 @@ async def retriever_node(state: AgentState) -> dict:
 _GRADER_SYSTEM = (
     "You are a relevance grader. Given a query and numbered document chunks, "
     "respond with ONLY a JSON array of integer indices (0-based) of chunks that "
-    "are relevant to or help answer the query. Include a chunk if it contains "
-    "information useful for answering — partial relevance counts. Only exclude a "
-    "chunk if it is completely unrelated to the query topic. "
-    "For broad queries (e.g. 'summarize', 'what documents do you have', 'overview'), "
-    "include all chunks. "
-    "Examples: [0,1,2] means chunks 0, 1, and 2 are relevant. [] means none are relevant. "
-    "No objects, no explanation — just the JSON integer array."
+    "directly address the query topic or contain facts needed to answer it. "
+    "Include a chunk if it is on the same topic as the query. "
+    "Exclude a chunk if it is about a different subject — even if it shares some words. "
+    "Examples: query 'reset password' → include chunks about passwords/accounts, "
+    "exclude chunks about Excel or cookies. "
+    "[] means no chunks are relevant. "
+    "No explanation — just the JSON integer array."
 )
 
 

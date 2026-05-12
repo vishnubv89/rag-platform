@@ -42,8 +42,9 @@ SELECT
     f.doc_id,
     f.text,
     f.rrf_score,
-    d.title AS doc_title,
-    d.source AS doc_source
+    d.title     AS doc_title,
+    d.source    AS doc_source,
+    d.external_id
 FROM fused f
 JOIN documents d ON d.id = f.doc_id
 WHERE ($4::bigint IS NULL OR d.org_id = $4)
@@ -61,14 +62,21 @@ async def hybrid_search(query: str, top_k: int | None = None, org_id: int | None
     async with pool.acquire() as conn:
         rows = await conn.fetch(_HYBRID_SQL, query, query_embedding, k, org_id)
 
-    return [
-        {
+    # Deduplicate: same article ingested from multiple connectors gets the same
+    # external_id. Keep only the highest-scored chunk per unique article.
+    seen: set[str] = set()
+    results: list[dict] = []
+    for row in rows:
+        dedup_key = row["external_id"] or f"{row['doc_title']}:{row['doc_id']}"
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        results.append({
             "chunk_id": row["chunk_id"],
             "doc_id": row["doc_id"],
             "text": row["text"],
             "score": float(row["rrf_score"]),
             "doc_title": row["doc_title"] or "",
             "doc_source": row["doc_source"] or "",
-        }
-        for row in rows
-    ]
+        })
+    return results

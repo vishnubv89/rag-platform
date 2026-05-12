@@ -26,6 +26,14 @@ from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.llm.client import generate as llm_generate
 
 
+def _is_valid_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await run_schema()
@@ -235,7 +243,7 @@ async def chat_stream(req: ChatRequest, request: Request):
                     RETURNING id
                     """,
                     org_id,
-                    UUID(session_id),
+                    UUID(session_id) if _is_valid_uuid(session_id) else uuid4(),
                     req.message,
                     final_state.get("answer", ""),
                     final_state.get("source_chunk_ids", []),
