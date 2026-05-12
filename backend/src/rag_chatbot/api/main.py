@@ -122,7 +122,10 @@ class IngestResponse(BaseModel):
 @limiter.limit("20/minute")
 async def chat(req: ChatRequest, request: Request):
     user = await require_user(request)
-    session_id = req.session_id or str(uuid4())
+    try:
+        session_id = str(UUID(req.session_id)) if req.session_id else str(uuid4())
+    except ValueError:
+        session_id = str(uuid4())
     messages = req.history + [{"role": "user", "content": req.message}]
     initial_state = {
         "messages": messages,
@@ -187,7 +190,10 @@ async def chat(req: ChatRequest, request: Request):
 @limiter.limit("20/minute")
 async def chat_stream(req: ChatRequest, request: Request):
     user = await require_user(request)
-    session_id = req.session_id or str(uuid4())
+    try:
+        session_id = str(UUID(req.session_id)) if req.session_id else str(uuid4())
+    except ValueError:
+        session_id = str(uuid4())
     messages = req.history + [{"role": "user", "content": req.message}]
 
     pool = await get_pool()
@@ -243,7 +249,7 @@ async def chat_stream(req: ChatRequest, request: Request):
                     RETURNING id
                     """,
                     org_id,
-                    UUID(session_id) if _is_valid_uuid(session_id) else uuid4(),
+                    UUID(session_id),
                     req.message,
                     final_state.get("answer", ""),
                     final_state.get("source_chunk_ids", []),
