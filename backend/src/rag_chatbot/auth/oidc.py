@@ -154,16 +154,26 @@ async def _claims_to_user(payload: dict[str, Any]) -> dict[str, Any]:
     email = payload.get("email", "") or payload.get("preferred_username", "")
     name = payload.get("name") or payload.get("preferred_username") or email
 
-    # Zitadel puts custom roles under "urn:zitadel:iam:org:project:roles"
-    # or in a flat "roles" array depending on the app's token settings.
-    roles: list[str] = []
-    zitadel_roles: Any = payload.get("urn:zitadel:iam:org:project:roles", {})
-    if isinstance(zitadel_roles, dict):
-        roles = list(zitadel_roles.keys())
-    elif isinstance(zitadel_roles, list):
-        roles = zitadel_roles
+    # Role resolution — priority order:
+    # 1. knowledge_mesh_role custom claim (set by Zitadel Action — most authoritative)
+    # 2. urn:zitadel:iam:org:project:roles (Zitadel project role assignment)
+    # 3. Default: "member"
+    role: str = "member"
 
-    role = "admin" if "admin" in roles or "superadmin" in roles else "member"
+    action_role = payload.get("knowledge_mesh_role", "")
+    if action_role in ("admin", "superadmin", "member"):
+        role = action_role
+    else:
+        zitadel_roles: Any = payload.get("urn:zitadel:iam:org:project:roles", {})
+        project_roles: list[str] = []
+        if isinstance(zitadel_roles, dict):
+            project_roles = list(zitadel_roles.keys())
+        elif isinstance(zitadel_roles, list):
+            project_roles = zitadel_roles
+        if "superadmin" in project_roles:
+            role = "superadmin"
+        elif "admin" in project_roles:
+            role = "admin"
 
     return {
         "id": sub,           # string, not int — callers that need int should cast

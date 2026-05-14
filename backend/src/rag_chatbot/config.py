@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # (the host-mapped port); it must use the internal service name instead.
     # Defaults to zitadel_issuer when not set (works for local dev outside Docker).
     zitadel_internal_url: str = ""
+    # Shared secret between Zitadel Actions and this backend.
+    # Zitadel sends this in X-Zitadel-Secret header on every enrich call.
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    zitadel_action_secret: str = ""
+
     # Frontend (User Agent / PKCE) application Client ID registered in Zitadel.
     # Zitadel sets `aud` to this value in access tokens issued to the browser.
     zitadel_frontend_client_id: str = ""
