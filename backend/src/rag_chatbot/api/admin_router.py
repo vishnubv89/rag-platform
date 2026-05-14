@@ -1074,3 +1074,82 @@ async def list_audit(
             for r in rows
         ],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SSO Role Management  /admin/orgs/{org_id}/sso-roles
+#
+# Controls the sso_user_roles table — the per-user role override that Zitadel
+# Actions read via /internal/zitadel/enrich on every token issuance.
+#
+# Roles take effect on the user's next SSO login (no cache to flush).
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SsoRoleUpsert(BaseModel):
+    email: str
+    role: str  # "admin" | "member" | "superadmin"
+
+
+@router.get("/orgs/{org_id}/sso-roles")
+async def list_sso_roles(org_id: int):
+    """List all SSO user role overrides for an org."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await _resolve_org(org_id, conn)   # 404 if org missing
+        rows = await conn.fetch(
+            """
+            SELECT email, org_id, role, created_at
+            FROM sso_user_roles
+            WHERE org_id = $1
+            ORDER BY email
+            """,
+            org_id,
+        )
+    return [
+        {"email": r["email"], "org_id": r["org_id"],
+         "role": r["role"], "created_at": str(r["created_at"])}
+        for r in rows
+    ]
+
+
+@router.put("/orgs/{org_id}/sso-roles", status_code=201)
+async def upsert_sso_role(org_id: int, body: SsoRoleUpsert):
+    """
+    Create or update the role override for an SSO user in this org.
+    Takes effect on their next login — no restart required.
+    """
+    allowed = {"admin", "member", "superadmin"}
+    if body.role not in allowed:
+        raise HTTPException(status_code=422, detail=f"role must be one of {allowed}")
+
+    email = body.email.strip().lower()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await _resolve_org(org_id, conn)
+        await conn.execute(
+            """
+            INSERT INTO sso_user_roles (email, org_id, role)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (email) DO UPDATE
+                SET org_id = EXCLUDED.org_id,
+                    role   = EXCLUDED.role
+            """,
+            email, org_id, body.role,
+        )
+    return {"email": email, "org_id": org_id, "role": body.role}
+
+
+@router.delete("/orgs/{org_id}/sso-roles/{email}", status_code=204)
+async def delete_sso_role(org_id: int, email: str):
+    """
+    Remove the per-user role override. The user falls back to the org's
+    domain default_role on their next login.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM sso_user_roles WHERE email = $1 AND org_id = $2",
+            email.lower(), org_id,
+        )
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="SSO role override not found")

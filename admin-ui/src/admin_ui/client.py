@@ -117,6 +117,18 @@ async def revoke_key(org_id: int, key_id: int) -> None:
     await _delete(f"/admin/orgs/{org_id}/keys/{key_id}")
 
 
+# ── SSO Roles ─────────────────────────────────────────────────────────────────
+
+async def list_sso_roles(org_id: int) -> list:
+    return await _get(f"/admin/orgs/{org_id}/sso-roles")
+
+async def upsert_sso_role(org_id: int, email: str, role: str) -> dict:
+    return await _put(f"/admin/orgs/{org_id}/sso-roles", json={"email": email, "role": role})
+
+async def delete_sso_role(org_id: int, email: str) -> None:
+    await _delete(f"/admin/orgs/{org_id}/sso-roles/{email}")
+
+
 # ── Documents ─────────────────────────────────────────────────────────────────
 
 async def list_docs(org_id: int | None = None, page: int = 1, limit: int = 20) -> dict:
