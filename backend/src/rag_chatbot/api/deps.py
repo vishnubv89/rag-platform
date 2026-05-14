@@ -1,10 +1,14 @@
 import hashlib
+import logging
+
 from fastapi import Header, HTTPException, Request, status
 
 import jwt
 
 from rag_chatbot.config import settings
 from rag_chatbot.db.connection import get_pool
+
+_log = logging.getLogger(__name__)
 
 
 def _sha256(value: str) -> str:
@@ -111,4 +115,11 @@ async def require_user(request: Request) -> dict:
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError as exc:
+        # Log the unverified claims so we can see iss/aud without a round-trip
+        try:
+            unverified = jwt.decode(token, options={"verify_signature": False, "verify_aud": False, "verify_iss": False})
+            _log.error("OIDC validation failed: %s | unverified claims: iss=%s aud=%s sub=%s",
+                       exc, unverified.get("iss"), unverified.get("aud"), unverified.get("sub"))
+        except Exception:
+            _log.error("OIDC validation failed: %s | could not decode token", exc)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))

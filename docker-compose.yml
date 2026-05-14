@@ -30,6 +30,9 @@ services:
       CORS_ORIGINS: '["http://localhost:5173","http://localhost:8080","*"]'
       APP_ENV: development
       JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret}
+      # Zitadel is reachable inside Docker via the service name on its internal
+      # port (8080).  The external port 8088 is only accessible on the host.
+      ZITADEL_INTERNAL_URL: http://zitadel:8080
     depends_on:
       postgres:
         condition: service_healthy

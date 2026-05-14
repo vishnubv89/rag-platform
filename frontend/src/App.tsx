@@ -183,10 +183,15 @@ function ZitadelCallback() {
   useEffect(() => {
     handleZitadelCallback()
       .then(async (oidcUser) => {
+        // Zitadel User Agent apps issue opaque access_tokens by default.
+        // The id_token is always a signed RS256 JWT and carries the same
+        // user claims — use it for backend authentication until the Zitadel
+        // app is configured to issue JWT access tokens.
+        const bearerToken = oidcUser.id_token ?? oidcUser.access_token;
         const me = await fetch("/auth/me", {
-          headers: { Authorization: `Bearer ${oidcUser.access_token}` },
+          headers: { Authorization: `Bearer ${bearerToken}` },
         }).then((r) => r.json());
-        setAuth(me, oidcUser.access_token);
+        setAuth(me, bearerToken);
         window.history.replaceState({}, "", "/");
       })
       .catch(() => {

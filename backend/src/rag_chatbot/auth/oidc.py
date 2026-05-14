@@ -10,11 +10,21 @@ Responsibilities
 
 The JWKS is cached for JWKS_TTL_SECONDS and refreshed lazily on the next
 request after expiry.  No background thread — this keeps the module simple.
+
+Docker Compose note
+-------------------
+Zitadel identifies its instance by matching the incoming HTTP ``Host`` header
+against ``ZITADEL_EXTERNALDOMAIN:ZITADEL_EXTERNALPORT`` (i.e. "localhost:8088").
+When the backend fetches JWKS via the internal service name ``zitadel:8080``
+the Host header becomes ``zitadel:8080``, which Zitadel rejects.
+
+Fix: reach Zitadel on the internal address (``ZITADEL_INTERNAL_URL``) while
+spoofing ``Host: localhost:8088`` so the instance lookup succeeds.  The ``iss``
+claim in the JWT is still validated against the public issuer URL.
 """
-import time
+from urllib.parse import urlparse
 from typing import Any
 
-import httpx
 import jwt
 from jwt import PyJWKClient, PyJWKClientError
 
@@ -28,15 +38,40 @@ _jwks_client: PyJWKClient | None = None
 _jwks_client_issuer: str = ""  # tracks which issuer the client was built for
 
 
+def _jwks_host_header(issuer: str) -> str:
+    """Return the Host header value Zitadel expects (domain[:port])."""
+    parsed = urlparse(issuer)
+    host = parsed.hostname or "localhost"
+    port = parsed.port
+    # Omit port for standard HTTP/HTTPS ports
+    if port and port not in (80, 443):
+        return f"{host}:{port}"
+    return host
+
+
 def _get_jwks_client() -> PyJWKClient:
-    """Return (or create) a PyJWKClient pointed at the configured Zitadel issuer."""
+    """Return (or create) a PyJWKClient pointed at the configured Zitadel issuer.
+
+    Uses ``zitadel_internal_url`` (if set) for the TCP connection so the
+    backend can reach Zitadel inside Docker, but spoofs the ``Host`` header to
+    match the public issuer URL so Zitadel accepts the request.
+    """
     global _jwks_client, _jwks_client_issuer
 
     issuer = settings.zitadel_issuer.rstrip("/")
+    # Use the internal Docker service URL for the actual TCP connection.
+    fetch_base = (settings.zitadel_internal_url or issuer).rstrip("/")
+    jwks_uri = f"{fetch_base}/oauth/v2/keys"
+
     if _jwks_client is None or _jwks_client_issuer != issuer:
-        jwks_uri = f"{issuer}/oauth/v2/keys"
-        # cache_keys=True means PyJWT re-fetches only when a key is unknown
-        _jwks_client = PyJWKClient(jwks_uri, cache_keys=True)
+        # Spoof Host so Zitadel's instance-routing accepts the request even
+        # when we connect via the internal service name.
+        host_header = _jwks_host_header(issuer)
+        _jwks_client = PyJWKClient(
+            jwks_uri,
+            cache_keys=True,
+            headers={"Host": host_header},
+        )
         _jwks_client_issuer = issuer
 
     return _jwks_client
@@ -82,13 +117,20 @@ async def validate_oidc_token(raw_token: str) -> dict[str, Any]:
 
     issuer = settings.zitadel_issuer.rstrip("/")
 
-    # Validate audience when the backend client ID is configured.
-    # Zitadel sets `aud` to the frontend client ID by default; the backend
-    # client ID is added when the token is requested with the correct scope.
-    # During initial setup, leave ZITADEL_BACKEND_CLIENT_ID empty to skip.
-    backend_client_id = settings.zitadel_backend_client_id
-    decode_options: dict = {"verify_aud": bool(backend_client_id)}
-    audience = [backend_client_id] if backend_client_id else None
+    # Build the accepted audience list.
+    #
+    # Zitadel PKCE access tokens set `aud` to the *frontend* client ID —
+    # the backend client ID only appears when the token is acquired via a
+    # service-account or OBO exchange.  Accept both so browser-issued tokens
+    # (aud = frontend) and server-issued tokens (aud = backend) both pass.
+    accepted: list[str] = []
+    if settings.zitadel_frontend_client_id:
+        accepted.append(settings.zitadel_frontend_client_id)
+    if settings.zitadel_backend_client_id:
+        accepted.append(settings.zitadel_backend_client_id)
+
+    decode_options: dict = {"verify_aud": bool(accepted)}
+    audience = accepted if accepted else None
 
     payload = jwt.decode(
         raw_token,

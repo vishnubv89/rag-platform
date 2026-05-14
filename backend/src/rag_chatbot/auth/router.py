@@ -168,3 +168,5 @@ async def me(request: Request):
     from rag_chatbot.api.deps import require_user
     user = await require_user(request)
     return UserResponse(**user)
+
+

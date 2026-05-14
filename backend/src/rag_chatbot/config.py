@@ -51,9 +51,17 @@ class Settings(BaseSettings):
     # Set to the Zitadel issuer URL, e.g. http://localhost:8088
     # Leave empty to disable OIDC token acceptance.
     zitadel_issuer: str = ""
+    # Internal URL used by the backend to fetch Zitadel's JWKS.
+    # When running in Docker Compose the backend cannot reach "localhost:8088"
+    # (the host-mapped port); it must use the internal service name instead.
+    # Defaults to zitadel_issuer when not set (works for local dev outside Docker).
+    zitadel_internal_url: str = ""
+    # Frontend (User Agent / PKCE) application Client ID registered in Zitadel.
+    # Zitadel sets `aud` to this value in access tokens issued to the browser.
+    zitadel_frontend_client_id: str = ""
     # Backend (API) application Client ID registered in Zitadel.
-    # Used to validate the `aud` claim in incoming Zitadel tokens.
-    # Leave empty to skip audience validation (useful during initial setup).
+    # Used for server-to-server token validation (e.g. OBO exchange).
+    # Leave empty to skip strict audience validation.
     zitadel_backend_client_id: str = ""
 
 
