@@ -123,3 +123,38 @@ async def require_user(request: Request) -> dict:
         except Exception:
             _log.error("OIDC validation failed: %s | could not decode token", exc)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Role-based access control dependencies
+# ---------------------------------------------------------------------------
+
+async def require_admin(request: Request) -> dict:
+    """Allow only users with role 'admin' or 'superadmin'."""
+    user = await require_user(request)
+    if user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return user
+
+
+async def require_superadmin(request: Request) -> dict:
+    """Allow only users with role 'superadmin' (cross-org operations)."""
+    user = await require_user(request)
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Superadmin access required")
+    return user
+
+
+def assert_org_access(user: dict, org_id: int) -> None:
+    """
+    Raise 403 if the user does not belong to the requested org.
+    Superadmins bypass this check (they can access all orgs).
+    """
+    if user.get("role") == "superadmin":
+        return
+    user_org = user.get("org_id")
+    if user_org is None or user_org != org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access to org {org_id} denied",
+        )

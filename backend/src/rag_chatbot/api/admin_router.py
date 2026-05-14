@@ -20,7 +20,7 @@ from rag_chatbot.api.audit import log_action
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 
-from rag_chatbot.api.deps import verify_admin_key
+from rag_chatbot.api.deps import verify_admin_key, require_admin, assert_org_access
 from rag_chatbot.db.connection import get_pool, run_schema
 from rag_chatbot.llm.client import generate as _llm_generate
 

@@ -141,14 +141,14 @@ async def validate_oidc_token(raw_token: str) -> dict[str, Any]:
         audience=audience,
     )
 
-    return _claims_to_user(payload)
+    return await _claims_to_user(payload)
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _claims_to_user(payload: dict[str, Any]) -> dict[str, Any]:
+async def _claims_to_user(payload: dict[str, Any]) -> dict[str, Any]:
     """Map Zitadel JWT claims → internal user dict."""
     sub = payload.get("sub", "")
     email = payload.get("email", "") or payload.get("preferred_username", "")
@@ -170,26 +170,45 @@ def _claims_to_user(payload: dict[str, Any]) -> dict[str, Any]:
         "email": email,
         "name": name,
         "role": role,
-        "org_id": _map_org_id(payload),
+        "org_id": await _map_org_id(payload),
         "is_active": True,
     }
 
 
-def _map_org_id(payload: dict[str, Any]) -> int | None:
+async def _map_org_id(payload: dict[str, Any]) -> int | None:
     """
     Derive the internal org_id from Zitadel claims.
 
     Priority order:
-    1. "knowledge_mesh_org_id" custom claim (set via Zitadel action/mapping)
-    2. Not yet mapped → None (user lands in default org)
+    1. "knowledge_mesh_org_id" custom claim  (set via Zitadel Action)
+    2. Email-domain lookup in org_domains table
+    3. None → falls into default org
 
-    Extend this function to add email-domain → org mapping or Zitadel org ID
-    → internal org ID lookup as your multi-tenancy setup evolves.
+    The DB lookup is cheap (primary-key scan) and results can be cached
+    at the application level if needed.
     """
+    # 1. Explicit custom claim wins
     custom = payload.get("knowledge_mesh_org_id")
     if custom is not None:
         try:
             return int(custom)
         except (TypeError, ValueError):
             pass
+
+    # 2. Email-domain → org lookup
+    email = payload.get("email", "") or payload.get("preferred_username", "")
+    if "@" in email:
+        domain = email.rsplit("@", 1)[-1].lower()
+        try:
+            from rag_chatbot.db.connection import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT org_id FROM org_domains WHERE domain = $1", domain
+                )
+            if row:
+                return int(row["org_id"])
+        except Exception:
+            pass  # DB unavailable during startup — fall through
+
     return None

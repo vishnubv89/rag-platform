@@ -142,11 +142,13 @@ async def chat(req: ChatRequest, request: Request):
         "org_id": None,
         "user_zitadel_token": extract_zitadel_token(request),
     }
-    # Fetch org config to drive provider/model selection at runtime
+    # Resolve org_id: user's own org > explicit request field > default org
     pool = await get_pool()
     async with pool.acquire() as conn:
-        org_id = req.org_id or await conn.fetchval(
-            "SELECT id FROM organizations WHERE slug='default'"
+        org_id = (
+            user.get("org_id")        # SSO/local user's assigned org (primary)
+            or req.org_id             # explicit override in request (superadmin)
+            or await conn.fetchval("SELECT id FROM organizations WHERE slug='default'")
         )
         rows = await conn.fetch(
             "SELECT key, value FROM app_config WHERE org_id=$1", org_id
@@ -200,8 +202,10 @@ async def chat_stream(req: ChatRequest, request: Request):
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        org_id = req.org_id or await conn.fetchval(
-            "SELECT id FROM organizations WHERE slug='default'"
+        org_id = (
+            user.get("org_id")        # SSO/local user's assigned org (primary)
+            or req.org_id             # explicit override (superadmin)
+            or await conn.fetchval("SELECT id FROM organizations WHERE slug='default'")
         )
         rows = await conn.fetch(
             "SELECT key, value FROM app_config WHERE org_id=$1", org_id
