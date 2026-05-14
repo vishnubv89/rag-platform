@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useAuthStore } from "../store/authStore";
+import { loginWithZitadel } from "../auth/zitadelClient";
 
 const API = "";
 
@@ -133,6 +134,31 @@ export function LoginPage() {
             {loading ? "Please wait…" : mode === "setup" ? "Create account" : "Sign in"}
           </button>
         </form>
+
+        {/* SSO divider — only shown when Zitadel is configured */}
+        {import.meta.env.VITE_ZITADEL_CLIENT_ID && (
+          <>
+            <div className="mt-5 flex items-center gap-3">
+              <div className="flex-1 h-px" style={{ background: "#e8e8ea" }} />
+              <span className="text-xs text-gray-400">or</span>
+              <div className="flex-1 h-px" style={{ background: "#e8e8ea" }} />
+            </div>
+            <button
+              type="button"
+              onClick={() => loginWithZitadel()}
+              className="mt-3 w-full py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+              style={{ background: "#f7f7f8", color: "#374151", border: "1px solid #e8e8ea" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#e5e7eb"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#f7f7f8"; }}
+            >
+              {/* Zitadel shield icon */}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              Sign in with SSO
+            </button>
+          </>
+        )}
 
         <div className="mt-5 text-center">
           {mode === "login" ? (

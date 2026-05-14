@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "./store/authStore";
+import { handleZitadelCallback, logoutZitadel } from "./auth/zitadelClient";
 import { LoginPage } from "./pages/LoginPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
@@ -55,8 +56,12 @@ function Portal() {
   useEffect(() => { checkWizard(); }, [user?.role]);
 
   async function logout() {
-    await fetch("/auth/logout", { method: "POST", credentials: "include" });
+    // Local session cleanup
+    await fetch("/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
     clearAuth();
+    // If the token was issued by Zitadel (RS256), end the Zitadel session too.
+    // Import is at module top; this is a no-op if VITE_ZITADEL_CLIENT_ID is unset.
+    try { await logoutZitadel(); } catch { /* not a Zitadel session */ }
   }
 
   return (
@@ -167,6 +172,36 @@ function Portal() {
   );
 }
 
+/**
+ * Handles the Zitadel OIDC redirect callback (path = /callback).
+ * Exchanges the authorisation code for tokens, fetches /auth/me, stores the
+ * user, then navigates back to the app root.
+ */
+function ZitadelCallback() {
+  const { setAuth } = useAuthStore();
+
+  useEffect(() => {
+    handleZitadelCallback()
+      .then(async (oidcUser) => {
+        const me = await fetch("/auth/me", {
+          headers: { Authorization: `Bearer ${oidcUser.access_token}` },
+        }).then((r) => r.json());
+        setAuth(me, oidcUser.access_token);
+        window.history.replaceState({}, "", "/");
+      })
+      .catch(() => {
+        // If exchange fails (stale state, back-button, etc.), go back to login.
+        window.location.replace("/");
+      });
+  }, []);
+
+  return (
+    <div className="flex items-center justify-center min-h-screen" style={{ background: "#f7f7f8" }}>
+      <div className="w-6 h-6 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+    </div>
+  );
+}
+
 function AuthBootstrap({ children }: { children: React.ReactNode }) {
   const { setAuth, clearAuth, isLoading } = useAuthStore();
 
@@ -197,6 +232,11 @@ function AuthBootstrap({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const { user } = useAuthStore();
+
+  // Handle Zitadel OIDC callback before the normal auth bootstrap.
+  if (window.location.pathname === "/callback") {
+    return <ZitadelCallback />;
+  }
 
   return (
     <QueryClientProvider client={queryClient}>

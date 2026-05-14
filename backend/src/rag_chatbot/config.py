@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Set to the Zitadel issuer URL, e.g. http://localhost:8088
     # Leave empty to disable OIDC token acceptance.
     zitadel_issuer: str = ""
+    # Backend (API) application Client ID registered in Zitadel.
+    # Used to validate the `aud` claim in incoming Zitadel tokens.
+    # Leave empty to skip audience validation (useful during initial setup).
+    zitadel_backend_client_id: str = ""
 
 
 settings = Settings()

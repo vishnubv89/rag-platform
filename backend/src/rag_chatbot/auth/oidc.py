@@ -81,12 +81,22 @@ async def validate_oidc_token(raw_token: str) -> dict[str, Any]:
         raise jwt.InvalidTokenError(f"JWKS fetch/key lookup failed: {exc}") from exc
 
     issuer = settings.zitadel_issuer.rstrip("/")
+
+    # Validate audience when the backend client ID is configured.
+    # Zitadel sets `aud` to the frontend client ID by default; the backend
+    # client ID is added when the token is requested with the correct scope.
+    # During initial setup, leave ZITADEL_BACKEND_CLIENT_ID empty to skip.
+    backend_client_id = settings.zitadel_backend_client_id
+    decode_options: dict = {"verify_aud": bool(backend_client_id)}
+    audience = [backend_client_id] if backend_client_id else None
+
     payload = jwt.decode(
         raw_token,
         signing_key.key,
         algorithms=["RS256"],
-        options={"verify_aud": False},   # audience varies per Zitadel app
+        options=decode_options,
         issuer=issuer,
+        audience=audience,
     )
 
     return _claims_to_user(payload)
