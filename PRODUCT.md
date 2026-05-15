@@ -659,9 +659,9 @@ Streaming requests produce the same tree with `rag-chat-stream` at the root.
 
 ### Access
 
-| URL | Credentials |
+| URL |
 |---|---|
-| `http://localhost:3000` | `admin@rag.local` / `Admin1234!` |
+| `http://localhost:3000` |
 
 Org, project, and API keys are seeded automatically on first start via `LANGFUSE_INIT_*` env vars. No manual setup needed.
 
