@@ -141,6 +141,193 @@ services:
       postgres:
         condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage (required by Langfuse v3 for events)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: rag_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9090:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local 2>/dev/null || curl -sf http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: rag_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/langfuse-events &&
+        mc mb --ignore-existing local/langfuse-media &&
+        echo 'MinIO buckets ready'
+      "
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Langfuse v3 — self-hosted LLM observability
+  #
+  # UI:     http://localhost:3000
+  # Login:  admin@rag.local / Admin1234!
+  #
+  # Pre-seeded project keys (used by the backend):
+  #   Public key : pk-lf-rag-platform-local
+  #   Secret key : sk-lf-rag-platform-local
+  #
+  # Architecture (v3+):
+  #   - langfuse     : Next.js web app
+  #   - langfuse-worker : background job worker (BullMQ)
+  #   - clickhouse   : trace/event storage
+  #   - redis        : job queue + API-key cache
+  #   - postgres     : relational data (langfuse_db schema)
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    container_name: rag_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/langfuse.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user clickhouse --password clickhouse --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: rag_langfuse_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/langfuse_db
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:clickhouse@clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      SALT: langfuse-salt-change-in-prod-32chars!!
+      NEXTAUTH_SECRET: langfuse-nextauth-secret-change-in-prod
+      ENCRYPTION_KEY: 5cb95a10aa34e164608a3ba3312edbbf5a96e31e6025b6f7c159e61042db97e8
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_LOG_LEVEL: warn
+      # MinIO / S3-compatible event + media storage
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse-media
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  langfuse:
+    image: langfuse/langfuse:3
+    container_name: rag_langfuse
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/langfuse_db
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:clickhouse@clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      NEXTAUTH_SECRET: langfuse-nextauth-secret-change-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      SALT: langfuse-salt-change-in-prod-32chars!!
+      ENCRYPTION_KEY: 5cb95a10aa34e164608a3ba3312edbbf5a96e31e6025b6f7c159e61042db97e8
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_LOG_LEVEL: warn
+      # MinIO / S3-compatible event + media storage
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse-media
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      # Bootstrap org, project and admin user on first run.
+      # LANGFUSE_INIT_ORG_ID and LANGFUSE_INIT_PROJECT_ID are required to
+      # trigger the init flow — the other INIT_* vars are ignored without them.
+      LANGFUSE_INIT_ORG_ID: rag-platform-org
+      LANGFUSE_INIT_ORG_NAME: RAG Platform
+      LANGFUSE_INIT_PROJECT_ID: rag-platform-project
+      LANGFUSE_INIT_PROJECT_NAME: rag-platform
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-rag-platform-local
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-rag-platform-local
+      LANGFUSE_INIT_USER_EMAIL: admin@rag.local
+      LANGFUSE_INIT_USER_PASSWORD: Admin1234!
+      LANGFUSE_INIT_USER_NAME: Admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      langfuse-worker:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:
   backups:
+  clickhouse_data:
+  minio_data:

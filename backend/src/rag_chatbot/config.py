@@ -69,5 +69,10 @@ class Settings(BaseSettings):
     # Leave empty to skip strict audience validation.
     zitadel_backend_client_id: str = ""
 
+    # Langfuse observability (optional — disabled when secret key is empty)
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://langfuse:3000"
+
 
 settings = Settings()

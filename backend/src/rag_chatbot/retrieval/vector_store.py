@@ -3,6 +3,7 @@ from pgvector.asyncpg import register_vector
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.embeddings.gemini_embedder import embed_text
 from rag_chatbot.config import settings
+from rag_chatbot.observability import get_langfuse
 
 _HYBRID_SQL = """
 WITH bm25 AS (
@@ -79,4 +80,18 @@ async def hybrid_search(query: str, top_k: int | None = None, org_id: int | None
             "doc_title": row["doc_title"] or "",
             "doc_source": row["doc_source"] or "",
         })
+
+    lf = get_langfuse()
+    if lf:
+        with lf.start_as_current_observation(
+            name="retrieval.hybrid_search",
+            as_type="retriever",
+            input={"query": query, "top_k": k, "org_id": org_id},
+            metadata={"org_id": org_id},
+        ) as obs:
+            obs.update(output={
+                "num_results": len(results),
+                "doc_titles": [r["doc_title"] for r in results],
+            })
+
     return results

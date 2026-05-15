@@ -1,9 +1,12 @@
 """
 LangGraph node functions for the Agentic RAG loop.
 
-Flow: intent → retriever → grader → generator
-                         ↘ rewriter → retriever (loop, max grader_max_loops)
-      intent (greeting)  → generator  (skip retrieval entirely)
+Flow: contextualize → intent → retriever → grader → generator
+                             ↘ rewriter → retriever (loop, max grader_max_loops)
+      intent (greeting)      → generator  (skip retrieval entirely)
+
+contextualize_node rewrites follow-up questions into standalone questions using
+prior conversation history so that all downstream nodes receive a self-contained query.
 """
 import asyncio
 import json
@@ -17,6 +20,54 @@ from rag_chatbot.llm.client import generate as _generate, stream_generate as _st
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.connectors.snow_token_exchange import exchange_for_snow_token, snow_kb_search
 from rag_chatbot.agent.state import AgentState
+
+
+# ---------------------------------------------------------------------------
+# Contextualize — rewrite follow-up questions as standalone questions
+# ---------------------------------------------------------------------------
+
+_CONTEXTUALIZE_SYSTEM = (
+    "Given a conversation history and a follow-up question, rewrite the follow-up "
+    "as a fully standalone question that contains all necessary context from the history. "
+    "If the follow-up is already standalone and does not reference anything from prior turns, "
+    "return it unchanged. Respond with ONLY the rewritten question — no explanation, "
+    "no preamble, no quotes."
+)
+
+
+async def contextualize_node(state: AgentState) -> dict:
+    """Rewrite follow-up questions to be standalone using conversation history.
+
+    First turn: no-op — just sets query from the raw message.
+    Subsequent turns: uses an LLM to resolve references like 'tell me more about that'
+    or 'what does step 2 mean?' into a fully self-contained question.
+    """
+    messages = state["messages"]
+    current_query = messages[-1]["content"].strip()
+
+    # First message — nothing to contextualize against
+    if len(messages) <= 1:
+        return {"query": current_query}
+
+    # Build history from the last 6 prior messages (up to 3 exchanges)
+    prior_messages = messages[:-1][-6:]
+    history = "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+        for m in prior_messages
+    )
+
+    prompt = (
+        f"Conversation history:\n{history}\n\n"
+        f"Follow-up question: {current_query}\n\n"
+        "Standalone question:"
+    )
+
+    cfg = state.get("llm_config", {})
+    loop = asyncio.get_running_loop()
+    standalone = await loop.run_in_executor(
+        None, lambda: _generate(prompt, _CONTEXTUALIZE_SYSTEM, cfg)
+    )
+    return {"query": standalone.strip()}
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +90,8 @@ _CHITCHAT_RE = re.compile(
 
 
 async def intent_node(state: AgentState) -> dict:
-    query = state["messages"][-1]["content"].strip()
+    # Use the (possibly contextualized) query set by contextualize_node
+    query = state["query"].strip()
     is_chitchat = bool(_CHITCHAT_RE.match(query))
     is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat
     return {
@@ -321,6 +373,8 @@ _GENERATOR_SYSTEM = (
     "are working from documents, chunks, context, or retrieved information. "
     "Do not use phrases like 'based on the provided', 'according to the documents', "
     "'the context states', or anything similar. "
+    "When a conversation history is included, use it to understand what the user is "
+    "referring to, but still answer only from the provided context. "
     "IMPORTANT: Do NOT use your general knowledge to fill gaps. If the provided context "
     "does not contain the answer, say 'I don't have information about that in my knowledge base.' "
     "Do not invent, guess, or supplement with facts not present in the context."
@@ -329,21 +383,44 @@ _GENERATOR_SYSTEM = (
 _CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
 
 
+def _build_history_block(messages: list[dict]) -> str:
+    """Return a formatted string of prior conversation turns (excluding the last user message)."""
+    prior = messages[:-1][-6:]  # up to 3 exchanges
+    if not prior:
+        return ""
+    return "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+        for m in prior
+    )
+
+
 async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
-    query = state["messages"][-1]["content"]
+    messages = state["messages"]
+    query = messages[-1]["content"]   # original user message (for display)
     docs = state["retrieved_docs"]
     cfg = state.get("llm_config", {})
     skip = state.get("skip_retrieval", False)
 
+    history_block = _build_history_block(messages)
+
     if skip or not docs:
-        prompt = query
+        if history_block:
+            prompt = f"Conversation so far:\n{history_block}\n\nUser: {query}"
+        else:
+            prompt = query
         system = _CHITCHAT_SYSTEM
     else:
         context = "\n\n".join(
             f"[Source: {d.get('doc_title') or 'Unknown'} | chunk {d['chunk_id']}]\n{d['text']}"
             for d in docs
         )
-        prompt = f"Question: {query}\n\nContext:\n{context}"
+        if history_block:
+            prompt = (
+                f"Conversation so far:\n{history_block}\n\n"
+                f"User: {query}\n\nContext:\n{context}"
+            )
+        else:
+            prompt = f"Question: {query}\n\nContext:\n{context}"
         system = _GENERATOR_SYSTEM
 
     answer = await _stream_llm(prompt, system, cfg, config)

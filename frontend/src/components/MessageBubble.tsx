@@ -70,7 +70,7 @@ export function MessageBubble({ message }: Props) {
         )}
 
         <div className={`text-xs mt-1 ${isUser ? "text-right" : "text-left"}`} style={{ color: "#d1d5db" }}>
-          {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       </div>
     </div>

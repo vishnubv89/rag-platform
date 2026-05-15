@@ -2,6 +2,7 @@ from langgraph.graph import StateGraph, END
 
 from rag_chatbot.agent.state import AgentState
 from rag_chatbot.agent.nodes import (
+    contextualize_node,
     intent_node,
     retriever_node,
     grader_node,
@@ -30,6 +31,7 @@ def _route_after_grader(state: AgentState) -> str:
 def build_graph() -> StateGraph:
     graph = StateGraph(AgentState)
 
+    graph.add_node("contextualize", contextualize_node)
     graph.add_node("intent", intent_node)
     graph.add_node("kb_overview", kb_overview_node)
     graph.add_node("retriever", retriever_node)
@@ -38,7 +40,8 @@ def build_graph() -> StateGraph:
     graph.add_node("generator", generator_node)
     graph.add_node("clarify", clarify_node)
 
-    graph.set_entry_point("intent")
+    graph.set_entry_point("contextualize")
+    graph.add_edge("contextualize", "intent")
 
     graph.add_conditional_edges(
         "intent",

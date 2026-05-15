@@ -15,6 +15,8 @@ from google import genai
 from google.genai import types
 
 from rag_chatbot.config import settings
+from rag_chatbot.observability import get_langfuse
+
 
 # Cached per api_key so changing keys in the admin UI gets a fresh client.
 _gemini_clients: dict[str, genai.Client] = {}
@@ -56,6 +58,12 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
     """
     cfg = config or {}
     provider = cfg.get("llm_provider") or settings.llm_provider
+    lf = get_langfuse()
+
+    result: str = ""
+    model: str = ""
+    usage_in: int = 0
+    usage_out: int = 0
 
     if provider == "anthropic":
         api_key = cfg.get("anthropic_api_key") or settings.anthropic_api_key
@@ -68,9 +76,11 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
             system=system or "You are a helpful assistant.",
             messages=[{"role": "user", "content": prompt}],
         )
-        return msg.content[0].text.strip()
+        result = msg.content[0].text.strip()
+        usage_in = msg.usage.input_tokens
+        usage_out = msg.usage.output_tokens
 
-    if provider == "nvidia":
+    elif provider == "nvidia":
         api_key = cfg.get("nvidia_api_key") or settings.nvidia_api_key
         if not api_key:
             raise ValueError("No NVIDIA API key. Set it in Admin → Settings.")
@@ -86,20 +96,39 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
             max_tokens=1024,
             temperature=0.0,
         )
-        return resp.choices[0].message.content.strip()
+        result = resp.choices[0].message.content.strip()
+        usage_in = resp.usage.prompt_tokens if resp.usage else 0
+        usage_out = resp.usage.completion_tokens if resp.usage else 0
 
-    # Default: Gemini
-    api_key = cfg.get("gemini_api_key") or settings.gemini_api_key
-    model = cfg.get("llm_model") or settings.llm_model
-    response = _gemini(api_key).models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system or None,
-            temperature=0.0,
-        ),
-    )
-    return response.text.strip()
+    else:
+        # Default: Gemini
+        api_key = cfg.get("gemini_api_key") or settings.gemini_api_key
+        model = cfg.get("llm_model") or settings.llm_model
+        response = _gemini(api_key).models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system or None,
+                temperature=0.0,
+            ),
+        )
+        result = response.text.strip()
+        usage = response.usage_metadata
+        usage_in = usage.prompt_token_count if usage else 0
+        usage_out = usage.candidates_token_count if usage else 0
+
+    if lf:
+        with lf.start_as_current_observation(
+            name="llm.generate",
+            as_type="generation",
+            input={"system": system, "prompt": prompt},
+            model=model,
+            metadata={"provider": provider},
+            usage_details={"input": usage_in, "output": usage_out},
+        ) as obs:
+            obs.update(output=result)
+
+    return result
 
 
 def stream_generate(
@@ -112,55 +141,76 @@ def stream_generate(
     """
     cfg = config or {}
     provider = cfg.get("llm_provider") or settings.llm_provider
+    lf = get_langfuse()
+    obs = None
 
-    if provider == "anthropic":
-        api_key = cfg.get("anthropic_api_key") or settings.anthropic_api_key
-        if not api_key:
-            raise ValueError("No Anthropic API key. Set it in Admin → Settings.")
-        model = cfg.get("anthropic_model") or settings.anthropic_model
-        with _anthropic_c(api_key).messages.stream(
-            model=model,
-            max_tokens=1024,
-            system=system or "You are a helpful assistant.",
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
-        return
-
-    if provider == "nvidia":
-        api_key = cfg.get("nvidia_api_key") or settings.nvidia_api_key
-        if not api_key:
-            raise ValueError("No NVIDIA API key. Set it in Admin → Settings.")
-        model = cfg.get("nvidia_model") or settings.nvidia_model
-        base_url = cfg.get("nvidia_base_url") or settings.nvidia_base_url
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        stream = _openai_c(base_url, api_key).chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=1024,
-            temperature=0.0,
-            stream=True,
+    if lf:
+        model_name = (
+            cfg.get("anthropic_model") or settings.anthropic_model
+            if provider == "anthropic"
+            else cfg.get("nvidia_model") or settings.nvidia_model
+            if provider == "nvidia"
+            else cfg.get("llm_model") or settings.llm_model
         )
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
-        return
+        obs = lf.start_observation(
+            name="llm.stream_generate",
+            as_type="generation",
+            input={"system": system, "prompt": prompt},
+            model=model_name,
+            metadata={"provider": provider, "streaming": True},
+        )
 
-    # Default: Gemini
-    api_key = cfg.get("gemini_api_key") or settings.gemini_api_key
-    model = cfg.get("llm_model") or settings.llm_model
-    for chunk in _gemini(api_key).models.generate_content_stream(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system or None,
-            temperature=0.0,
-        ),
-    ):
-        if chunk.text:
-            yield chunk.text
+    try:
+        if provider == "anthropic":
+            api_key = cfg.get("anthropic_api_key") or settings.anthropic_api_key
+            if not api_key:
+                raise ValueError("No Anthropic API key. Set it in Admin → Settings.")
+            model = cfg.get("anthropic_model") or settings.anthropic_model
+            with _anthropic_c(api_key).messages.stream(
+                model=model,
+                max_tokens=1024,
+                system=system or "You are a helpful assistant.",
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                for text in stream.text_stream:
+                    yield text
+
+        elif provider == "nvidia":
+            api_key = cfg.get("nvidia_api_key") or settings.nvidia_api_key
+            if not api_key:
+                raise ValueError("No NVIDIA API key. Set it in Admin → Settings.")
+            model = cfg.get("nvidia_model") or settings.nvidia_model
+            base_url = cfg.get("nvidia_base_url") or settings.nvidia_base_url
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            stream = _openai_c(base_url, api_key).chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=1024,
+                temperature=0.0,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+
+        else:
+            # Default: Gemini
+            api_key = cfg.get("gemini_api_key") or settings.gemini_api_key
+            model = cfg.get("llm_model") or settings.llm_model
+            for chunk in _gemini(api_key).models.generate_content_stream(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system or None,
+                    temperature=0.0,
+                ),
+            ):
+                if chunk.text:
+                    yield chunk.text
+    finally:
+        if obs:
+            obs.end()

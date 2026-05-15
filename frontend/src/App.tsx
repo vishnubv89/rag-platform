@@ -208,9 +208,13 @@ function ZitadelCallback() {
 }
 
 function AuthBootstrap({ children }: { children: React.ReactNode }) {
-  const { setAuth, clearAuth, isLoading } = useAuthStore();
+  const { user, setAuth, clearAuth, isLoading } = useAuthStore();
 
   useEffect(() => {
+    // If a user is already in the store (e.g., just set by ZitadelCallback),
+    // skip the refresh — OIDC sessions have no httpOnly refresh cookie.
+    if (user) return;
+
     // Try to get a new access token using the httpOnly refresh cookie
     fetch("/auth/refresh", { method: "POST", credentials: "include" })
       .then(async (r) => {

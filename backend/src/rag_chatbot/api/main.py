@@ -25,6 +25,7 @@ from rag_chatbot.auth.router import router as auth_router
 from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.llm.client import generate as llm_generate
+from rag_chatbot.observability import get_langfuse
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -157,9 +158,28 @@ async def chat(req: ChatRequest, request: Request):
         ) if org_id else []
     llm_config = {r["key"]: r["value"] for r in rows}
 
+    lf = get_langfuse()
+
     t0 = time.monotonic()
     try:
-        final_state = await rag_graph.ainvoke(initial_state | {"llm_config": llm_config, "org_id": org_id})
+        from langfuse._client.propagation import _propagate_attributes
+        _state = initial_state | {"llm_config": llm_config, "org_id": org_id}
+        if lf:
+            with _propagate_attributes(
+                user_id=str(user.get("id")),
+                session_id=session_id,
+                tags=[f"org:{org_id}"] if org_id else [],
+                metadata={"org_id": str(org_id)} if org_id else {},
+            ):
+                with lf.start_as_current_observation(
+                    name="rag-chat",
+                    as_type="chain",
+                    input={"query": req.message},
+                ) as trace:
+                    final_state = await rag_graph.ainvoke(_state)
+                    trace.update(output={"answer": final_state.get("answer", "")})
+        else:
+            final_state = await rag_graph.ainvoke(_state)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     latency_ms = int((time.monotonic() - t0) * 1000)
@@ -230,11 +250,31 @@ async def chat_stream(req: ChatRequest, request: Request):
         "user_zitadel_token": extract_zitadel_token(request),
     }
 
+    lf = get_langfuse()
+
     async def event_generator():
+        from langfuse._client.propagation import _propagate_attributes
         t0 = time.monotonic()
         final_state: dict = {}
+        lf_trace = None
+        _prop_ctx = None
+        if lf:
+            _prop_ctx = _propagate_attributes(
+                user_id=str(user.get("id")),
+                session_id=session_id,
+                tags=[f"org:{org_id}"] if org_id else [],
+                metadata={"org_id": str(org_id)} if org_id else {},
+            )
+            _prop_ctx.__enter__()
+            lf_trace = lf.start_observation(
+                name="rag-chat-stream",
+                as_type="chain",
+                input={"query": req.message},
+            )
         try:
-            async for event in rag_graph.astream_events(initial_state, version="v2"):
+            async for event in rag_graph.astream_events(
+                initial_state, version="v2"
+            ):
                 if event["event"] == "on_custom_event" and event["name"] == "stream_token":
                     token = event["data"].get("token", "")
                     if token:
@@ -242,8 +282,18 @@ async def chat_stream(req: ChatRequest, request: Request):
                 elif event["event"] == "on_chain_end" and event["name"] == "LangGraph":
                     final_state = event["data"].get("output", {})
         except Exception as e:
+            if lf_trace:
+                lf_trace.end()
+            if _prop_ctx:
+                _prop_ctx.__exit__(None, None, None)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
+
+        if lf_trace:
+            lf_trace.update(output={"answer": final_state.get("answer", "")})
+            lf_trace.end()
+        if _prop_ctx:
+            _prop_ctx.__exit__(None, None, None)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
 
