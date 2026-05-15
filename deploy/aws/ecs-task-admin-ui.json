@@ -1,0 +1,32 @@
+{
+  "family": "rag-admin-ui",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "rag-admin-ui",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/rag-admin-ui:latest",
+      "portMappings": [
+        { "containerPort": 8080, "protocol": "tcp" }
+      ],
+      "essential": true,
+      "secrets": [
+        { "name": "ADMIN_SECRET_KEY", "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/rag/ADMIN_SECRET_KEY" }
+      ],
+      "environment": [
+        { "name": "APP_ENV", "value": "production" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/rag-platform/admin-ui",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

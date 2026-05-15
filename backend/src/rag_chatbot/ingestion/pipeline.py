@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rag_chatbot.db.connection import get_pool, run_schema
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
-from rag_chatbot.ingestion.chunker import chunk_text
+from rag_chatbot.ingestion.chunker import semantic_chunk_text as chunk_text
 from rag_chatbot.ingestion.loader import load_file
 
 
@@ -16,34 +16,33 @@ async def ingest_file(
     metadata: dict | None = None,
     org_id: int | None = None,
 ) -> dict:
-    """Load, chunk, embed, and store a file. Returns doc info."""
+    """Load, chunk, embed, and store a file atomically. Returns doc info."""
     p = Path(file_path)
     title = title or p.stem
     text = load_file(p)
     chunks = chunk_text(text)
 
     if not chunks:
-        raise ValueError(f"No chunks extracted from {file_path}")
+        raise ValueError(f"No text could be extracted from {file_path}")
 
     embeddings = await embed_batch(chunks, task_type="RETRIEVAL_DOCUMENT")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        doc_id = await conn.fetchval(
-            "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
-            title,
-            source or str(p),
-            json.dumps(metadata or {}),
-            org_id,
-        )
-        rows = [
-            (doc_id, i, chunk, embeddings[i])
-            for i, chunk in enumerate(chunks)
-        ]
-        await conn.executemany(
-            "INSERT INTO chunks (doc_id, chunk_index, text, embedding) VALUES ($1, $2, $3, $4)",
-            rows,
-        )
+        # Wrap both INSERTs in a transaction — if embedding or chunk insert
+        # fails, the document row is rolled back too (no orphan 0-chunk docs).
+        async with conn.transaction():
+            doc_id = await conn.fetchval(
+                "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+                title,
+                source or str(p),
+                json.dumps(metadata or {}),
+                org_id,
+            )
+            await conn.executemany(
+                "INSERT INTO chunks (doc_id, chunk_index, text, embedding) VALUES ($1, $2, $3, $4)",
+                [(doc_id, i, chunk, embeddings[i]) for i, chunk in enumerate(chunks)],
+            )
 
     return {"doc_id": doc_id, "title": title, "chunks": len(chunks)}
 
@@ -55,7 +54,7 @@ async def ingest_text(
     metadata: dict | None = None,
     org_id: int | None = None,
 ) -> dict:
-    """Chunk, embed, and store raw text content."""
+    """Chunk, embed, and store raw text content atomically."""
     chunks = chunk_text(text)
     if not chunks:
         raise ValueError("No chunks extracted from provided text")
@@ -64,21 +63,18 @@ async def ingest_text(
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        doc_id = await conn.fetchval(
-            "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
-            title,
-            source,
-            json.dumps(metadata or {}),
-            org_id,
-        )
-        rows = [
-            (doc_id, i, chunk, embeddings[i])
-            for i, chunk in enumerate(chunks)
-        ]
-        await conn.executemany(
-            "INSERT INTO chunks (doc_id, chunk_index, text, embedding) VALUES ($1, $2, $3, $4)",
-            rows,
-        )
+        async with conn.transaction():
+            doc_id = await conn.fetchval(
+                "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+                title,
+                source,
+                json.dumps(metadata or {}),
+                org_id,
+            )
+            await conn.executemany(
+                "INSERT INTO chunks (doc_id, chunk_index, text, embedding) VALUES ($1, $2, $3, $4)",
+                [(doc_id, i, chunk, embeddings[i]) for i, chunk in enumerate(chunks)],
+            )
 
     return {"doc_id": doc_id, "title": title, "chunks": len(chunks)}
 

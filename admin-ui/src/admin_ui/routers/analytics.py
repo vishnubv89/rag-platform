@@ -8,11 +8,11 @@ router = APIRouter()
 @router.get("/analytics")
 async def analytics_page(
     request: Request,
-    org_id: int | None = None,
     from_dt: str | None = None,
     to_dt: str | None = None,
     page: int = 1,
 ):
+    org_id = request.state.active_org_id
     try:
         summary = await client.analytics_summary(org_id=org_id, from_dt=from_dt, to_dt=to_dt)
         logs = await client.list_logs(org_id=org_id, page=page, from_dt=from_dt, to_dt=to_dt)

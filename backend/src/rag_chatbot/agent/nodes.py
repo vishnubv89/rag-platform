@@ -1,22 +1,84 @@
 """
 LangGraph node functions for the Agentic RAG loop.
 
-Flow: intent → retriever → grader → generator
-                         ↘ rewriter → retriever (loop, max grader_max_loops)
-      intent (greeting)  → generator  (skip retrieval entirely)
+Flow: contextualize → intent → retriever → grader → generator
+                             ↘ rewriter → retriever (loop, max grader_max_loops)
+      intent (greeting)      → generator  (skip retrieval entirely)
+
+contextualize_node rewrites follow-up questions into standalone questions using
+prior conversation history so that all downstream nodes receive a self-contained query.
 """
 import asyncio
 import json
 import re
 
-from rag_chatbot.llm.client import generate as _generate
+from langchain_core.callbacks import adispatch_custom_event
+from langchain_core.runnables import RunnableConfig
+
+from rag_chatbot.db.connection import get_pool
+from rag_chatbot.llm.client import generate as _generate, stream_generate as _stream_generate
 from rag_chatbot.retrieval.vector_store import hybrid_search
+from rag_chatbot.connectors.snow_token_exchange import exchange_for_snow_token, snow_kb_search
 from rag_chatbot.agent.state import AgentState
+
+
+# ---------------------------------------------------------------------------
+# Contextualize — rewrite follow-up questions as standalone questions
+# ---------------------------------------------------------------------------
+
+_CONTEXTUALIZE_SYSTEM = (
+    "Given a conversation history and a follow-up question, rewrite the follow-up "
+    "as a fully standalone question that contains all necessary context from the history. "
+    "If the follow-up is already standalone and does not reference anything from prior turns, "
+    "return it unchanged. Respond with ONLY the rewritten question — no explanation, "
+    "no preamble, no quotes."
+)
+
+
+async def contextualize_node(state: AgentState) -> dict:
+    """Rewrite follow-up questions to be standalone using conversation history.
+
+    First turn: no-op — just sets query from the raw message.
+    Subsequent turns: uses an LLM to resolve references like 'tell me more about that'
+    or 'what does step 2 mean?' into a fully self-contained question.
+    """
+    messages = state["messages"]
+    current_query = messages[-1]["content"].strip()
+
+    # First message — nothing to contextualize against
+    if len(messages) <= 1:
+        return {"query": current_query}
+
+    # Build history from the last 6 prior messages (up to 3 exchanges)
+    prior_messages = messages[:-1][-6:]
+    history = "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+        for m in prior_messages
+    )
+
+    prompt = (
+        f"Conversation history:\n{history}\n\n"
+        f"Follow-up question: {current_query}\n\n"
+        "Standalone question:"
+    )
+
+    cfg = state.get("llm_config", {})
+    loop = asyncio.get_running_loop()
+    standalone = await loop.run_in_executor(
+        None, lambda: _generate(prompt, _CONTEXTUALIZE_SYSTEM, cfg)
+    )
+    return {"query": standalone.strip()}
 
 
 # ---------------------------------------------------------------------------
 # Intent — lightweight keyword check, no LLM call
 # ---------------------------------------------------------------------------
+
+_KB_OVERVIEW_RE = re.compile(
+    r"(summarize|summary|list|overview|what.*(document|topic|know|cover|help)|"
+    r"show.*document|what.*knowledge.base|what.*in.*kb|what.*can.*you.*help)",
+    re.IGNORECASE,
+)
 
 _CHITCHAT_RE = re.compile(
     r"^\s*(hi+|hello+|hey+|howdy|greetings|good\s*(morning|afternoon|evening|day)|"
@@ -28,8 +90,14 @@ _CHITCHAT_RE = re.compile(
 
 
 async def intent_node(state: AgentState) -> dict:
-    query = state["messages"][-1]["content"]
-    return {"skip_retrieval": bool(_CHITCHAT_RE.match(query.strip()))}
+    # Use the (possibly contextualized) query set by contextualize_node
+    query = state["query"].strip()
+    is_chitchat = bool(_CHITCHAT_RE.match(query))
+    is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat
+    return {
+        "skip_retrieval": is_chitchat or is_overview,
+        "kb_overview": is_overview,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -37,8 +105,92 @@ async def intent_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 async def retriever_node(state: AgentState) -> dict:
-    docs = await hybrid_search(state["query"])
+    """
+    Retrieve relevant chunks for the current query.
+
+    Primary path: hybrid (vector + BM25) search against pgvector.
+
+    OBO path (when user authenticated via Zitadel):
+      1. Fetch the connector configs for the org that have OBO configured.
+      2. Exchange the user's Zitadel token for a per-connector ServiceNow token.
+      3. Run a live KB search against ServiceNow using that token.
+      4. Merge live results with pgvector results, deduplicating by external_id.
+
+    If OBO exchange fails (unconfigured or SN error), falls back to pgvector only.
+    """
+    org_id = state.get("org_id")
+    query = state["query"]
+    zitadel_token = state.get("user_zitadel_token")
+
+    # Always run the pgvector search
+    docs = await hybrid_search(query, org_id=org_id)
+
+    # OBO supplement — only when user has a Zitadel token
+    if zitadel_token and org_id:
+        obo_docs = await _obo_search(query, zitadel_token, org_id)
+        if obo_docs:
+            docs = _merge_docs(docs, obo_docs)
+
     return {"retrieved_docs": docs}
+
+
+async def _obo_search(query: str, zitadel_token: str, org_id: int) -> list[dict]:
+    """
+    Fetch OBO-capable connector configs for the org, exchange tokens, and
+    run live ServiceNow KB searches.  Returns [] on any failure.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT config
+               FROM connectors
+               WHERE org_id = $1
+                 AND connector_type = 'servicenow'
+                 AND is_active = TRUE
+                 AND (config->>'obo_client_id') IS NOT NULL
+                 AND (config->>'obo_client_id') != ''""",
+            org_id,
+        )
+
+    if not rows:
+        return []
+
+    import json as _json
+    obo_docs: list[dict] = []
+    for row in rows:
+        cfg = row["config"] if isinstance(row["config"], dict) else _json.loads(row["config"])
+        snow_token = await exchange_for_snow_token(zitadel_token, cfg)
+        if not snow_token:
+            continue
+        live = await snow_kb_search(
+            query,
+            snow_token,
+            cfg["instance_url"],
+            kb_sys_id=cfg.get("kb_sys_id"),
+        )
+        obo_docs.extend(live)
+
+    return obo_docs
+
+
+def _merge_docs(pgvector_docs: list[dict], obo_docs: list[dict]) -> list[dict]:
+    """
+    Merge OBO live results into pgvector results, deduplicating by external_id.
+    pgvector results take precedence (they are already ranked); OBO results are
+    appended for articles not already present.
+    """
+    seen: set[str] = {
+        d["external_id"] for d in pgvector_docs if d.get("external_id")
+    }
+    merged = list(pgvector_docs)
+    for doc in obo_docs:
+        ext_id = doc.get("external_id")
+        if ext_id and ext_id in seen:
+            continue
+        if ext_id:
+            seen.add(ext_id)
+        merged.append(doc)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -47,9 +199,14 @@ async def retriever_node(state: AgentState) -> dict:
 
 _GRADER_SYSTEM = (
     "You are a relevance grader. Given a query and numbered document chunks, "
-    "respond with ONLY a JSON array of integer indices (0-based) of the chunks "
-    "relevant to the query. No objects, no explanation, just integers. "
-    "Examples: [0,2] means chunks 0 and 2 are relevant. [] means none are relevant."
+    "respond with ONLY a JSON array of integer indices (0-based) of chunks that "
+    "directly address the query topic or contain facts needed to answer it. "
+    "Include a chunk if it is on the same topic as the query. "
+    "Exclude a chunk if it is about a different subject — even if it shares some words. "
+    "Examples: query 'reset password' → include chunks about passwords/accounts, "
+    "exclude chunks about Excel or cookies. "
+    "[] means no chunks are relevant. "
+    "No explanation — just the JSON integer array."
 )
 
 
@@ -79,7 +236,7 @@ async def grader_node(state: AgentState) -> dict:
     if not docs:
         return {"grading_passed": False, "loop_count": state["loop_count"] + 1}
 
-    doc_list = "\n".join(f"[{i}] {d['text'][:300]}" for i, d in enumerate(docs))
+    doc_list = "\n".join(f"[{i}] {d['text'][:600]}" for i, d in enumerate(docs))
     prompt = f"Query: {query}\n\nDocuments:\n{doc_list}"
 
     loop = asyncio.get_running_loop()
@@ -92,7 +249,7 @@ async def grader_node(state: AgentState) -> dict:
     passed = len(relevant_docs) > 0
 
     return {
-        "retrieved_docs": relevant_docs if passed else docs,
+        "retrieved_docs": relevant_docs if passed else [],
         "grading_passed": passed,
         "loop_count": state["loop_count"] + 1,
     }
@@ -123,36 +280,150 @@ async def rewriter_node(state: AgentState) -> dict:
 # Generator
 # ---------------------------------------------------------------------------
 
+async def _stream_llm(
+    prompt: str, system: str, cfg: dict, config: RunnableConfig
+) -> str:
+    """Run stream_generate in a thread, dispatch each token as a custom event,
+    and return the full accumulated text."""
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    chunks: list[str] = []
+
+    def _run() -> None:
+        try:
+            for chunk in _stream_generate(prompt, system, cfg):
+                chunks.append(chunk)
+                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    fut = loop.run_in_executor(None, _run)
+
+    while True:
+        chunk = await queue.get()
+        if chunk is None:
+            break
+        await adispatch_custom_event("stream_token", {"token": chunk}, config=config)
+
+    await fut
+    return "".join(chunks)
+
+
+# ---------------------------------------------------------------------------
+# KB Overview — fires when user asks what's in the knowledge base
+# ---------------------------------------------------------------------------
+
+_KB_OVERVIEW_SYSTEM = (
+    "You are a helpful assistant. The user wants to know what topics their "
+    "knowledge base covers. Based ONLY on the document titles listed below, "
+    "write a concise, friendly overview that groups related documents into "
+    "themes. Use bullet points for the themes. Do not invent topics not "
+    "reflected in the titles. End with a one-line offer to answer specific questions."
+)
+
+
+async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
+    """Fetch all doc titles for the org and summarise them — no retrieval needed."""
+    org_id = state.get("org_id")
+    cfg = state.get("llm_config", {})
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT title
+               FROM documents
+               WHERE ($1::bigint IS NULL OR org_id = $1)
+                 AND (SELECT COUNT(*) FROM chunks WHERE doc_id = documents.id) > 0
+               ORDER BY title""",
+            org_id,
+        )
+
+    if not rows:
+        answer = (
+            "Your knowledge base is currently empty — no documents have been "
+            "ingested yet. Upload files or connect a data source to get started."
+        )
+        return {
+            "answer": answer,
+            "source_chunk_ids": [],
+            "sources": [],
+            "messages": [{"role": "assistant", "content": answer}],
+        }
+
+    doc_list = "\n".join(f"- {r['title']}" for r in rows)
+    prompt = (
+        f"Here are the {len(rows)} documents in the knowledge base:\n\n"
+        f"{doc_list}\n\n"
+        "Provide a concise overview of the topics covered, grouping related documents."
+    )
+
+    answer = await _stream_llm(prompt, _KB_OVERVIEW_SYSTEM, cfg, config)
+
+    return {
+        "answer": answer,
+        "source_chunk_ids": [],
+        "sources": [],
+        "messages": [{"role": "assistant", "content": answer}],
+    }
+
+
 _GENERATOR_SYSTEM = (
-    "You are a helpful assistant that answers questions using ONLY the provided "
-    "document chunks. Cite sources by document name as [Source: document_title]. "
-    "If the documents lack enough information, say so honestly."
+    "You are a knowledgeable assistant. Answer the user's question using ONLY the "
+    "context provided. Answer directly and conversationally — never mention that you "
+    "are working from documents, chunks, context, or retrieved information. "
+    "Do not use phrases like 'based on the provided', 'according to the documents', "
+    "'the context states', or anything similar. "
+    "When a conversation history is included, use it to understand what the user is "
+    "referring to, but still answer only from the provided context. "
+    "IMPORTANT: Do NOT use your general knowledge to fill gaps. If the provided context "
+    "does not contain the answer, say 'I don't have information about that in my knowledge base.' "
+    "Do not invent, guess, or supplement with facts not present in the context."
 )
 
 _CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
 
 
-async def generator_node(state: AgentState) -> dict:
-    query = state["messages"][-1]["content"]
+def _build_history_block(messages: list[dict]) -> str:
+    """Return a formatted string of prior conversation turns (excluding the last user message)."""
+    prior = messages[:-1][-6:]  # up to 3 exchanges
+    if not prior:
+        return ""
+    return "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+        for m in prior
+    )
+
+
+async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
+    messages = state["messages"]
+    query = messages[-1]["content"]   # original user message (for display)
     docs = state["retrieved_docs"]
     cfg = state.get("llm_config", {})
     skip = state.get("skip_retrieval", False)
 
+    history_block = _build_history_block(messages)
+
     if skip or not docs:
-        prompt = query
+        if history_block:
+            prompt = f"Conversation so far:\n{history_block}\n\nUser: {query}"
+        else:
+            prompt = query
         system = _CHITCHAT_SYSTEM
     else:
         context = "\n\n".join(
             f"[Source: {d.get('doc_title') or 'Unknown'} | chunk {d['chunk_id']}]\n{d['text']}"
             for d in docs
         )
-        prompt = f"Question: {query}\n\nContext:\n{context}"
+        if history_block:
+            prompt = (
+                f"Conversation so far:\n{history_block}\n\n"
+                f"User: {query}\n\nContext:\n{context}"
+            )
+        else:
+            prompt = f"Question: {query}\n\nContext:\n{context}"
         system = _GENERATOR_SYSTEM
 
-    loop = asyncio.get_running_loop()
-    answer = await loop.run_in_executor(
-        None, lambda: _generate(prompt, system, cfg)
-    )
+    answer = await _stream_llm(prompt, system, cfg, config)
 
     sources = [
         {
@@ -168,5 +439,28 @@ async def generator_node(state: AgentState) -> dict:
         "answer": answer,
         "source_chunk_ids": [d["chunk_id"] for d in docs],
         "sources": sources,
+        "messages": [{"role": "assistant", "content": answer}],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Clarify — fires when grading exhausted without finding relevant docs
+# ---------------------------------------------------------------------------
+
+async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
+    query = state["messages"][-1]["content"]
+    cfg = state.get("llm_config", {})
+    system = (
+        "You are a helpful assistant. The user asked a question that isn't covered "
+        "by the available knowledge base. Politely let them know you don't have that "
+        "information, and ask a short clarifying question to help narrow down what "
+        "they're looking for — perhaps they meant something different, or there's a "
+        "related topic in the knowledge base that would help. Keep it brief and friendly."
+    )
+    answer = await _stream_llm(f"User asked: {query}", system, cfg, config)
+    return {
+        "answer": answer,
+        "source_chunk_ids": [],
+        "sources": [],
         "messages": [{"role": "assistant", "content": answer}],
     }

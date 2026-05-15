@@ -64,6 +64,100 @@
   </div>
 </div>
 
+<!-- SSO Role Management -->
+<div class="card stat-card mt-4" id="sso-roles">
+  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">
+      <i class="bi bi-shield-lock me-1 text-primary"></i>SSO Role Overrides
+    </span>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addRoleModal">
+      <i class="bi bi-person-plus me-1"></i>Add / Update
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <div class="px-3 py-2 bg-light border-bottom">
+      <small class="text-muted">
+        <i class="bi bi-info-circle me-1"></i>
+        Per-user role for SSO login. Takes effect on their next sign-in.
+        Users not listed here inherit the domain default (<code>member</code>).
+      </small>
+    </div>
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Since</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in sso_roles %}
+      <tr>
+        <td>{{ r.email }}</td>
+        <td>
+          {% if r.role == 'admin' %}
+            <span class="badge bg-warning text-dark">admin</span>
+          {% elif r.role == 'superadmin' %}
+            <span class="badge bg-danger">superadmin</span>
+          {% else %}
+            <span class="badge bg-secondary">member</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ r.created_at[:10] if r.created_at else '—' }}</td>
+        <td>
+          <form method="post" action="/orgs/{{ org.id }}/sso-roles/{{ r.email }}/delete"
+                onsubmit="return confirm('Remove role override for {{ r.email }}?')">
+            <button class="btn btn-sm btn-outline-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="4" class="text-center text-muted py-3">
+          No overrides — all SSO users get the domain default role (<code>member</code>).
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add / Update SSO Role Modal -->
+<div class="modal fade" id="addRoleModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/orgs/{{ org.id }}/sso-roles">
+        <div class="modal-header">
+          <h5 class="modal-title">Add / Update SSO Role</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+            <input class="form-control" name="email" type="email"
+                   placeholder="alice@excel.com" required>
+            <div class="form-text">Must match the user's Zitadel login email exactly.</div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Role <span class="text-danger">*</span></label>
+            <select class="form-select" name="role" required>
+              <option value="member">member — chat only</option>
+              <option value="admin">admin — manage org docs &amp; users</option>
+              <option value="superadmin">superadmin — full platform access</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- Generate Key Modal -->
 <div class="modal fade" id="newKeyModal" tabindex="-1">
   <div class="modal-dialog">

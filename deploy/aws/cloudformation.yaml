@@ -1,0 +1,308 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  RAG Platform — ECS Fargate + Aurora Postgres (with pgvector) + ALB.
+  Replace all PLACEHOLDER values before deploying.
+
+# ────────────────────────────────────────────────────────────────────────────
+# Parameters
+# ────────────────────────────────────────────────────────────────────────────
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to deploy into
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: At least 2 public subnets (for ALB) and 2 private subnets (for ECS + RDS)
+
+  ECRAccountId:
+    Type: String
+    Description: AWS account ID where ECR repos live (usually same account)
+
+  ECRRegion:
+    Type: String
+    Default: us-east-1
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for the Postgres user 'rag'
+
+  GoogleApiKey:
+    Type: String
+    NoEcho: true
+
+  JwtSecret:
+    Type: String
+    NoEcho: true
+
+  AdminSecretKey:
+    Type: String
+    NoEcho: true
+
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN for HTTPS. Leave empty for HTTP-only (dev/test).
+
+# ────────────────────────────────────────────────────────────────────────────
+# Conditions
+# ────────────────────────────────────────────────────────────────────────────
+Conditions:
+  HasCert: !Not [!Equals [!Ref CertificateArn, ""]]
+
+# ────────────────────────────────────────────────────────────────────────────
+# Resources
+# ────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── SSM Parameters (secrets) ──────────────────────────────────────────────
+  ParamGoogleApiKey:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /rag/GOOGLE_API_KEY
+      Type: SecureString
+      Value: !Ref GoogleApiKey
+
+  ParamJwtSecret:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /rag/JWT_SECRET
+      Type: SecureString
+      Value: !Ref JwtSecret
+
+  ParamAdminSecretKey:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /rag/ADMIN_SECRET_KEY
+      Type: SecureString
+      Value: !Ref AdminSecretKey
+
+  ParamDatabaseUrl:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /rag/DATABASE_URL
+      Type: SecureString
+      Value: !Sub "postgresql://rag:${DBPassword}@${RDSInstance.Endpoint.Address}:5432/rag_db"
+
+  # ── Security Groups ───────────────────────────────────────────────────────
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB — allow HTTP/HTTPS from internet
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS tasks — allow from ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS — allow from ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+
+  # ── RDS Postgres ──────────────────────────────────────────────────────────
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RAG Platform RDS subnet group
+      SubnetIds: !Ref SubnetIds
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: rag-db
+      DBInstanceClass: db.t4g.micro
+      Engine: postgres
+      EngineVersion: "16.3"
+      DBName: rag_db
+      MasterUsername: rag
+      MasterUserPassword: !Ref DBPassword
+      AllocatedStorage: "20"
+      StorageType: gp3
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: [!Ref RDSSecurityGroup]
+      PubliclyAccessible: false
+      DeletionProtection: true
+      # pgvector must be enabled post-creation:
+      # psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+  # ── ECS Cluster ───────────────────────────────────────────────────────────
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: rag-platform
+
+  # ── IAM — Task Execution Role ─────────────────────────────────────────────
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecsTaskExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ssm-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["ssm:GetParameter", "ssm:GetParameters"]
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rag/*"
+
+  # ── CloudWatch Log Groups ─────────────────────────────────────────────────
+  LogGroupBackend:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /rag-platform/backend
+      RetentionInDays: 30
+
+  LogGroupFrontend:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /rag-platform/frontend
+      RetentionInDays: 14
+
+  LogGroupAdminUI:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /rag-platform/admin-ui
+      RetentionInDays: 14
+
+  # ── ALB ───────────────────────────────────────────────────────────────────
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: rag-alb
+      Scheme: internet-facing
+      Subnets: !Ref SubnetIds
+      SecurityGroups: [!Ref ALBSecurityGroup]
+
+  TargetGroupBackend:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: rag-backend-tg
+      Protocol: HTTP
+      Port: 8000
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 15
+
+  TargetGroupFrontend:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: rag-frontend-tg
+      Protocol: HTTP
+      Port: 80
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /
+
+  TargetGroupAdminUI:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: rag-adminui-tg
+      Protocol: HTTP
+      Port: 8080
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /
+
+  # HTTP listener — redirects to HTTPS if cert provided, else serves directly
+  ALBListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - !If
+          - HasCert
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              StatusCode: HTTP_301
+          - Type: forward
+            TargetGroupArn: !Ref TargetGroupFrontend
+
+  ALBListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasCert
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupFrontend
+
+  # Route /api/* → backend, /admin → admin-ui, default → frontend
+  ListenerRuleBackend:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !If [HasCert, !Ref ALBListenerHTTPS, !Ref ALBListenerHTTP]
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values: ["/chat", "/ingest*", "/admin*", "/health", "/suggest*"]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupBackend
+
+  ListenerRuleAdminUI:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !If [HasCert, !Ref ALBListenerHTTPS, !Ref ALBListenerHTTP]
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values: ["/admin-ui*"]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupAdminUI
+
+# ────────────────────────────────────────────────────────────────────────────
+# Outputs
+# ────────────────────────────────────────────────────────────────────────────
+Outputs:
+  ALBDNSName:
+    Description: Load balancer DNS (point your domain CNAME here)
+    Value: !GetAtt ALB.DNSName
+
+  RDSEndpoint:
+    Description: Postgres endpoint (internal)
+    Value: !GetAtt RDSInstance.Endpoint.Address
+
+  ECSClusterName:
+    Value: !Ref ECSCluster

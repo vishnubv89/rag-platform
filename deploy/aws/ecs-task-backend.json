@@ -1,0 +1,43 @@
+{
+  "family": "rag-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "rag-backend",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/rag-backend:latest",
+      "portMappings": [
+        { "containerPort": 8000, "protocol": "tcp" }
+      ],
+      "essential": true,
+      "environment": [
+        { "name": "APP_ENV", "value": "production" }
+      ],
+      "secrets": [
+        { "name": "GOOGLE_API_KEY",    "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/rag/GOOGLE_API_KEY" },
+        { "name": "JWT_SECRET",        "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/rag/JWT_SECRET" },
+        { "name": "ADMIN_SECRET_KEY",  "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/rag/ADMIN_SECRET_KEY" },
+        { "name": "DATABASE_URL",      "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/rag/DATABASE_URL" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/rag-platform/backend",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

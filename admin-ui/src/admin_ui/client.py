@@ -2,6 +2,32 @@
 import httpx
 from admin_ui.config import settings
 
+
+async def login(email: str, password: str) -> dict:
+    """Authenticate a user against the backend — no admin key needed."""
+    async with httpx.AsyncClient(base_url=settings.backend_url, timeout=10.0) as c:
+        r = await c.post("/auth/login", json={"email": email, "password": password})
+    if r.is_error:
+        try:
+            detail = r.json().get("detail", r.text)
+        except Exception:
+            detail = r.text or "Login failed"
+        raise Exception(detail)
+    return r.json()
+
+
+async def me(access_token: str) -> dict:
+    """Return user info for a valid access token."""
+    async with httpx.AsyncClient(
+        base_url=settings.backend_url,
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=10.0,
+    ) as c:
+        r = await c.get("/auth/me")
+    if r.is_error:
+        raise Exception("Could not fetch user info")
+    return r.json()
+
 _client: httpx.AsyncClient | None = None
 
 
@@ -11,38 +37,54 @@ def get_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(
             base_url=settings.backend_url,
             headers={"X-Admin-Key": settings.admin_secret_key},
-            timeout=30.0,
+            timeout=httpx.Timeout(10.0, read=300.0),
         )
     return _client
 
 
+def _raise(r: httpx.Response) -> None:
+    """Raise with the backend's detail message instead of the raw HTTP error."""
+    if r.is_error:
+        try:
+            detail = r.json().get("detail", r.text)
+        except Exception:
+            detail = r.text or r.reason_phrase
+        raise Exception(detail)
+
+
 async def _get(path: str, **params) -> dict | list:
     r = await get_client().get(path, params={k: v for k, v in params.items() if v is not None})
-    r.raise_for_status()
+    _raise(r)
     return r.json()
 
 
 async def _post(path: str, json: dict | None = None, **kwargs) -> dict:
     r = await get_client().post(path, json=json, **kwargs)
-    r.raise_for_status()
-    return r.json()
+    _raise(r)
+    try:
+        return r.json()
+    except Exception:
+        return {}
 
 
 async def _put(path: str, json: dict) -> dict:
     r = await get_client().put(path, json=json)
-    r.raise_for_status()
+    _raise(r)
     return r.json()
 
 
-async def _patch(path: str, json: dict) -> dict:
-    r = await get_client().patch(path, json=json)
-    r.raise_for_status()
-    return r.json()
+async def _patch(path: str, json: dict, **params) -> dict:
+    r = await get_client().patch(path, json=json, params={k: v for k, v in params.items() if v is not None})
+    _raise(r)
+    try:
+        return r.json()
+    except Exception:
+        return {}
 
 
-async def _delete(path: str) -> None:
-    r = await get_client().delete(path)
-    r.raise_for_status()
+async def _delete(path: str, **params) -> None:
+    r = await get_client().delete(path, params={k: v for k, v in params.items() if v is not None})
+    _raise(r)
 
 
 # ── Orgs ──────────────────────────────────────────────────────────────────────
@@ -75,6 +117,18 @@ async def revoke_key(org_id: int, key_id: int) -> None:
     await _delete(f"/admin/orgs/{org_id}/keys/{key_id}")
 
 
+# ── SSO Roles ─────────────────────────────────────────────────────────────────
+
+async def list_sso_roles(org_id: int) -> list:
+    return await _get(f"/admin/orgs/{org_id}/sso-roles")
+
+async def upsert_sso_role(org_id: int, email: str, role: str) -> dict:
+    return await _put(f"/admin/orgs/{org_id}/sso-roles", json={"email": email, "role": role})
+
+async def delete_sso_role(org_id: int, email: str) -> None:
+    await _delete(f"/admin/orgs/{org_id}/sso-roles/{email}")
+
+
 # ── Documents ─────────────────────────────────────────────────────────────────
 
 async def list_docs(org_id: int | None = None, page: int = 1, limit: int = 20) -> dict:
@@ -83,8 +137,22 @@ async def list_docs(org_id: int | None = None, page: int = 1, limit: int = 20) -
 async def get_doc(doc_id: int) -> dict:
     return await _get(f"/admin/docs/{doc_id}")
 
-async def delete_doc(doc_id: int) -> None:
-    await _delete(f"/admin/docs/{doc_id}")
+async def get_doc_topics(doc_id: int, refresh: bool = False) -> dict:
+    return await _get(f"/admin/docs/{doc_id}/topics", refresh=refresh if refresh else None)
+
+async def delete_doc(doc_id: int, org_id: int | None = None) -> None:
+    await _delete(f"/admin/docs/{doc_id}", org_id=org_id)
+
+async def ingest_file_upload(filename: str, content: bytes, org_id: int | None) -> dict:
+    params = {"org_id": org_id} if org_id else {}
+    r = await get_client().post(
+        "/admin/docs/ingest/file",
+        files={"file": (filename, content)},
+        params=params,
+    )
+    _raise(r)
+    return r.json()
+
 
 async def ingest_text(title: str, text: str, source: str, org_id: int | None) -> dict:
     return await _post(
@@ -112,3 +180,75 @@ async def list_logs(org_id: int | None = None, page: int = 1, from_dt: str | Non
 
 async def token_usage(org_id: int | None = None, days: int = 30) -> list:
     return await _get("/admin/analytics/token-usage", org_id=org_id, days=days)
+
+
+# ── Connectors ────────────────────────────────────────────────────────────────
+
+async def list_connectors(org_id: int | None = None) -> list:
+    return await _get("/admin/connectors", org_id=org_id)
+
+async def connector_types() -> list:
+    data = await _get("/admin/connectors/types")
+    return data.get("types", [])
+
+async def create_connector(name: str, connector_type: str, config: dict, sync_interval_minutes: int, org_id: int | None) -> dict:
+    return await _post("/admin/connectors", json={
+        "name": name, "connector_type": connector_type,
+        "config": config, "sync_interval_minutes": sync_interval_minutes,
+        "org_id": org_id,
+    })
+
+async def get_connector(connector_id: int) -> dict:
+    return await _get(f"/admin/connectors/{connector_id}")
+
+async def patch_connector(connector_id: int, org_id: int | None = None, **fields) -> dict:
+    return await _patch(f"/admin/connectors/{connector_id}", json=fields, org_id=org_id)
+
+async def delete_connector(connector_id: int, org_id: int | None = None) -> None:
+    await _delete(f"/admin/connectors/{connector_id}", org_id=org_id)
+
+async def trigger_sync(connector_id: int) -> dict:
+    return await _post(f"/admin/connectors/{connector_id}/sync")
+
+async def connector_jobs(connector_id: int) -> list:
+    return await _get(f"/admin/connectors/{connector_id}/jobs")
+
+
+# ── Knowledge Health ──────────────────────────────────────────────────────────
+
+async def knowledge_health(org_id: int | None = None) -> dict:
+    return await _get("/admin/knowledge/health", org_id=org_id)
+
+async def list_conflicts(org_id: int | None = None, status: str = "pending") -> list:
+    return await _get("/admin/knowledge/conflicts", org_id=org_id, status=status)
+
+async def resolve_conflict(conflict_id: int, status: str, resolved_doc_id: int | None = None) -> dict:
+    return await _patch(f"/admin/knowledge/conflicts/{conflict_id}", json={"status": status, "resolved_doc_id": resolved_doc_id})
+
+async def stale_documents(org_id: int | None = None, days: int = 90) -> list:
+    return await _get("/admin/knowledge/stale", org_id=org_id, days=days)
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+async def list_users(org_id: int | None = None) -> list:
+    return await _get("/admin/users", org_id=org_id)
+
+async def create_user(email: str, name: str, password: str, role: str, org_id: int | None) -> dict:
+    return await _post("/admin/users", json={
+        "email": email, "name": name, "password": password,
+        "role": role, "org_id": org_id,
+    })
+
+async def patch_user(user_id: int, **fields) -> dict:
+    return await _patch(f"/admin/users/{user_id}", json=fields)
+
+async def delete_user(user_id: int) -> None:
+    await _delete(f"/admin/users/{user_id}")
+
+
+# ── Audit Log ─────────────────────────────────────────────────────────────────
+
+async def list_audit(org_id: int | None = None, limit: int = 50, offset: int = 0) -> dict:
+    return await _get("/admin/audit", org_id=org_id, limit=limit, offset=offset)
+

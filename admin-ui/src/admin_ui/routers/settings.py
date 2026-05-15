@@ -15,7 +15,8 @@ CONFIG_KEYS = [
 
 
 @router.get("/settings")
-async def settings_page(request: Request, org_id: int | None = None):
+async def settings_page(request: Request):
+    org_id = request.state.active_org_id
     try:
         cfg = await client.get_config(org_id=org_id)
         orgs = await client.list_orgs()
@@ -39,7 +40,7 @@ async def settings_page(request: Request, org_id: int | None = None):
 @router.post("/settings")
 async def save_settings(
     request: Request,
-    org_id: int | None = Form(None),
+    org_id: str | None = Form(None),
     llm_provider: str = Form("gemini"),
     llm_model: str = Form(""),
     anthropic_model: str = Form(""),
@@ -54,6 +55,7 @@ async def save_settings(
     chunk_size: str = Form(""),
     chunk_overlap: str = Form(""),
 ):
+    org_id_int = int(org_id) if org_id else None
     new_cfg: dict[str, str] = {
         "llm_provider": llm_provider,
         "llm_model": llm_model,
@@ -67,14 +69,12 @@ async def save_settings(
         "chunk_size": chunk_size,
         "chunk_overlap": chunk_overlap,
     }
-    # Only update API keys if a new value was submitted (blank = keep existing)
     if anthropic_api_key:
         new_cfg["anthropic_api_key"] = anthropic_api_key
     if nvidia_api_key:
         new_cfg["nvidia_api_key"] = nvidia_api_key
 
     await client.update_config(
-        org_id=org_id, cfg={k: v for k, v in new_cfg.items() if v}
+        org_id=org_id_int, cfg={k: v for k, v in new_cfg.items() if v}
     )
-    redirect = f"/settings?org_id={org_id}&saved=1" if org_id else "/settings?saved=1"
-    return RedirectResponse(redirect, status_code=303)
+    return RedirectResponse("/settings?saved=1", status_code=303)

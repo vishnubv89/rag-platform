@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %} — Audit Log{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0">Audit Log</h4>
+  {% set _org = (orgs | selectattr('id', 'equalto', active_org_id) | first) if active_org_id else none %}
+  {% if _org %}<span class="scope-badge scope-org"><i class="bi bi-building"></i>{{ _org.name }}</span>
+  {% else %}<span class="scope-badge scope-all"><i class="bi bi-globe2"></i>All organizations</span>{% endif %}
+</div>
+
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Time</th><th>Action</th><th>Resource</th><th>ID</th><th>User</th><th>Org</th><th>Detail</th><th>IP</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for log in logs %}
+      <tr>
+        <td class="text-muted text-nowrap">{{ log.created_at[:19].replace('T',' ') }}</td>
+        <td>
+          {% if log.action == 'delete' %}
+          <span class="badge bg-danger">delete</span>
+          {% elif log.action == 'create' %}
+          <span class="badge bg-success">create</span>
+          {% elif log.action == 'sync' %}
+          <span class="badge bg-info text-dark">sync</span>
+          {% else %}
+          <span class="badge bg-secondary">{{ log.action }}</span>
+          {% endif %}
+        </td>
+        <td>{{ log.resource }}</td>
+        <td class="text-muted">{{ log.resource_id or '—' }}</td>
+        <td class="text-muted">{{ log.user_email or '—' }}</td>
+        <td class="text-muted">{{ log.org_id or '—' }}</td>
+        <td class="text-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ log.detail }}">
+          {{ log.detail | string | truncate(60) if log.detail else '—' }}
+        </td>
+        <td class="text-muted">{{ log.ip or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-muted py-4">No audit events yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if total > 50 %}
+  <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+    <small class="text-muted">{{ total }} total events</small>
+    <div class="btn-group btn-group-sm">
+      {% if offset > 0 %}
+      <a class="btn btn-outline-secondary" href="?offset={{ [offset-50,0]|max }}">Prev</a>
+      {% endif %}
+      {% if offset + limit < total %}
+      <a class="btn btn-outline-secondary" href="?offset={{ offset+50 }}">Next</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

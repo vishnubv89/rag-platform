@@ -1,0 +1,145 @@
+# DigitalOcean App Platform spec — RAG Platform
+# Deploy with: doctl apps create --spec deploy/do/app.yaml
+# Update with: doctl apps update <APP_ID> --spec deploy/do/app.yaml
+#
+# Prerequisites:
+#   1. doctl installed and authenticated (doctl auth init)
+#   2. GitHub repo connected to your DO account
+#   3. A DO managed Postgres database with the pgvector extension enabled
+#      (Create via: doctl databases create rag-db --engine pg --version 16 --size db-s-1vcpu-1gb)
+#      Then enable pgvector: doctl databases user create <DB_ID> rag
+#      And run migrations manually once after first deploy.
+#
+# App-level env vars that must be set as secrets in the DO dashboard
+# before deploying (they are referenced as ${VAR} below):
+#   GOOGLE_API_KEY, JWT_SECRET, ADMIN_SECRET_KEY, DATABASE_URL
+
+name: rag-platform
+region: nyc
+features:
+  - buildpack-stack=ubuntu-22
+
+# ── Database ──────────────────────────────────────────────────────────────────
+# Use a DO Managed Postgres with pgvector. After creating the cluster,
+# bind it to this app under Settings > Components > rag-backend > Databases.
+# The DATABASE_URL will be injected automatically when bound.
+
+# ── Services ──────────────────────────────────────────────────────────────────
+
+services:
+
+  # Backend — FastAPI + LangGraph + Gemini
+  - name: rag-backend
+    github:
+      repo: YOUR_GITHUB_ORG/rag-platform   # ← replace
+      branch: main
+      deploy_on_push: true
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
+    http_port: 8000
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 20
+      period_seconds: 10
+      failure_threshold: 3
+    envs:
+      - key: GOOGLE_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${GOOGLE_API_KEY}
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+        value: ${JWT_SECRET}
+      - key: ADMIN_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${ADMIN_SECRET_KEY}
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${rag-db.DATABASE_URL}   # bound managed DB injects this
+      - key: APP_ENV
+        scope: RUN_TIME
+        value: production
+      - key: CORS_ORIGINS
+        scope: RUN_TIME
+        value: '["${APP_URL}","${rag-frontend.INTERNAL_URL}"]'
+    routes:
+      - path: /
+
+  # Frontend — React + Vite served by nginx
+  - name: rag-frontend
+    github:
+      repo: YOUR_GITHUB_ORG/rag-platform   # ← replace
+      branch: main
+      deploy_on_push: true
+    source_dir: frontend
+    dockerfile_path: frontend/Dockerfile
+    http_port: 80
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    build_command: ""   # Dockerfile handles the build
+    envs:
+      - key: VITE_API_BASE_URL
+        scope: BUILD_TIME
+        value: ${rag-backend.INTERNAL_URL}
+      - key: VITE_ADMIN_KEY
+        scope: BUILD_TIME
+        type: SECRET
+        value: ${ADMIN_SECRET_KEY}
+    routes:
+      - path: /
+
+  # Admin UI — FastAPI + Jinja2 + Bootstrap
+  - name: rag-admin-ui
+    github:
+      repo: YOUR_GITHUB_ORG/rag-platform   # ← replace
+      branch: main
+      deploy_on_push: true
+    source_dir: admin-ui
+    dockerfile_path: admin-ui/Dockerfile
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /
+      initial_delay_seconds: 10
+    envs:
+      - key: BACKEND_URL
+        scope: RUN_TIME
+        value: ${rag-backend.INTERNAL_URL}
+      - key: ADMIN_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${ADMIN_SECRET_KEY}
+      - key: APP_ENV
+        scope: RUN_TIME
+        value: production
+    routes:
+      - path: /
+
+# ── Jobs — run migrations on every deploy ─────────────────────────────────────
+jobs:
+  - name: migrate
+    github:
+      repo: YOUR_GITHUB_ORG/rag-platform   # ← replace
+      branch: main
+      deploy_on_push: true
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
+    kind: PRE_DEPLOY
+    run_command: >
+      sh -c "
+        for f in $(ls src/rag_chatbot/db/migrations/*.sql | sort); do
+          echo \"Applying $f\";
+          psql \"$DATABASE_URL\" -f \"$f\" || true;
+        done
+      "
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${rag-db.DATABASE_URL}

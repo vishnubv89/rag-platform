@@ -30,5 +30,17 @@ class AgentState(TypedDict):
     # True when the query is a greeting/chitchat — skip retrieval
     skip_retrieval: bool
 
+    # True when the query is asking for a KB overview/summary — bypass retrieval
+    kb_overview: bool
+
     # Runtime LLM config from app_config table (overrides env defaults)
     llm_config: dict
+
+    # Org that owns this session — retrieval is scoped to this org
+    org_id: int | None
+
+    # Raw Zitadel access token for the current user.
+    # When set, retriever_node attempts an OBO token exchange with ServiceNow
+    # and supplements pgvector results with a live permission-aware SN search.
+    # None when the user authenticated via local password login (no Zitadel token).
+    user_zitadel_token: str | None

@@ -40,9 +40,21 @@ export function FileUpload() {
         {status === "done" && <span className="text-green-600">{result}</span>}
         {status === "error" && <span className="text-red-500">{result}</span>}
         {status === "idle" && (
-          <span className="text-gray-400">
-            {isDragActive ? "Drop to ingest" : "Drop a PDF, TXT or MD to ingest"}
-          </span>
+          <div className="flex flex-col items-center gap-2">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            {isDragActive ? (
+              <span className="text-indigo-500 text-sm font-medium">Drop to ingest</span>
+            ) : (
+              <>
+                <span className="text-gray-400 text-xs">PDF, TXT or MD · drag here or</span>
+                <span className="text-xs font-medium px-3 py-1 rounded-lg" style={{ background: "#eff6ff", color: "#2563eb" }}>
+                  Browse files
+                </span>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>

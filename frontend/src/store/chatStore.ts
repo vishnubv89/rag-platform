@@ -12,7 +12,7 @@ interface ChatStore {
 
   addMessage: (msg: ChatMessage) => void;
   newSession: () => void;
-  loadSession: (sessionId: string) => void;
+  loadSession: (sessionId: string, messages?: ChatMessage[]) => void;
   setOrg: (org: Org | null) => void;
   saveCurrentSession: () => void;
 }
@@ -33,16 +33,11 @@ export const useChatStore = create<ChatStore>()(
         set({ messages: [], sessionId: uuidv4(), activeSessionId: uuidv4() });
       },
 
-      loadSession: (id) => {
+      loadSession: (id, messages?) => {
         get().saveCurrentSession();
-        const session = get().sessions.find((s) => s.id === id);
-        if (session) {
-          set({
-            messages: session.messages,
-            activeSessionId: session.id,
-            sessionId: session.id,
-          });
-        }
+        // If messages provided directly (from API), use them; else fall back to localStorage
+        const resolved = messages ?? get().sessions.find((s) => s.id === id)?.messages ?? [];
+        set({ messages: resolved, activeSessionId: id, sessionId: id });
       },
 
       setOrg: (org) => set({ activeOrg: org }),

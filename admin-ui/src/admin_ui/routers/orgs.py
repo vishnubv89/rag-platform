@@ -31,8 +31,9 @@ async def org_detail(request: Request, org_id: int, new_key: str | None = None):
     try:
         org = await client.get_org(org_id)
         keys = await client.list_keys(org_id)
+        sso_roles = await client.list_sso_roles(org_id)
     except Exception as e:
-        org, keys = {}, []
+        org, keys, sso_roles = {}, [], []
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
@@ -41,6 +42,7 @@ async def org_detail(request: Request, org_id: int, new_key: str | None = None):
         {
             "org": org,
             "keys": keys,
+            "sso_roles": sso_roles,
             "new_key": new_key,
             "active_page": "orgs",
         },
@@ -64,3 +66,17 @@ async def revoke_key(org_id: int, key_id: int):
 async def toggle_org(org_id: int, is_active: str = Form("true")):
     await client.patch_org(org_id, is_active=(is_active == "true"))
     return RedirectResponse("/orgs", status_code=303)
+
+
+# ── SSO Role Management ───────────────────────────────────────────────────────
+
+@router.post("/orgs/{org_id}/sso-roles")
+async def add_sso_role(org_id: int, email: str = Form(...), role: str = Form(...)):
+    await client.upsert_sso_role(org_id=org_id, email=email, role=role)
+    return RedirectResponse(f"/orgs/{org_id}#sso-roles", status_code=303)
+
+
+@router.post("/orgs/{org_id}/sso-roles/{email}/delete")
+async def remove_sso_role(org_id: int, email: str):
+    await client.delete_sso_role(org_id=org_id, email=email)
+    return RedirectResponse(f"/orgs/{org_id}#sso-roles", status_code=303)

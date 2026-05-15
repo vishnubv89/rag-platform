@@ -17,10 +17,7 @@ export function MessageInput({ onSend, loading }: Props) {
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
   }
 
   function onInput() {
@@ -31,31 +28,45 @@ export function MessageInput({ onSend, loading }: Props) {
   }
 
   return (
-    <div className="flex items-end gap-2 p-4 border-t border-gray-100 bg-white">
+    <div
+      className="flex items-end gap-2.5 px-4 py-3"
+      style={{ borderTop: "1px solid #e8e8ea", background: "#ffffff" }}
+    >
       <textarea
         ref={textareaRef}
-        className="flex-1 resize-none rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
+        className="flex-1 resize-none text-sm focus:outline-none disabled:opacity-50"
+        style={{
+          background: "#f7f7f8",
+          border: "1px solid #e8e8ea",
+          borderRadius: 12,
+          padding: "10px 14px",
+          color: "#111827",
+          lineHeight: 1.5,
+          fontFamily: "inherit",
+        }}
         rows={1}
-        placeholder="Ask a question… (Shift+Enter for newline)"
+        placeholder="Ask a question… (Shift+Enter for new line)"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
         onInput={onInput}
         disabled={loading}
+        onFocus={(e) => { (e.currentTarget as HTMLTextAreaElement).style.borderColor = "#2563eb"; (e.currentTarget as HTMLTextAreaElement).style.boxShadow = "0 0 0 3px rgba(37,99,235,.08)"; }}
+        onBlur={(e) => { (e.currentTarget as HTMLTextAreaElement).style.borderColor = "#e8e8ea"; (e.currentTarget as HTMLTextAreaElement).style.boxShadow = "none"; }}
       />
       <button
         onClick={submit}
         disabled={loading || !text.trim()}
-        className="flex-shrink-0 w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+        className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-colors"
+        style={{ background: loading || !text.trim() ? "#e5e7eb" : "#2563eb" }}
       >
         {loading ? (
-          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={loading ? "#9ca3af" : "white"} strokeWidth="2">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
           </svg>
         ) : (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          <svg className="w-4 h-4" fill="none" stroke={!text.trim() ? "#9ca3af" : "white"} viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         )}
       </button>

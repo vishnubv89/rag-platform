@@ -27,8 +27,12 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/rag_db
-      CORS_ORIGINS: '["http://localhost:5173","http://localhost:8080"]'
+      CORS_ORIGINS: '["http://localhost:5173","http://localhost:8080","*"]'
       APP_ENV: development
+      JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret}
+      # Zitadel is reachable inside Docker via the service name on its internal
+      # port (8080).  The external port 8088 is only accessible on the host.
+      ZITADEL_INTERNAL_URL: http://zitadel:8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,8 +47,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:8000
+        VITE_API_BASE_URL: ""
         VITE_ADMIN_KEY: ${ADMIN_SECRET_KEY:-change-me}
+        VITE_ZITADEL_AUTHORITY: ${ZITADEL_ISSUER:-http://localhost:8088}
+        VITE_ZITADEL_CLIENT_ID: ${ZITADEL_FRONTEND_CLIENT_ID:-}
     container_name: rag_frontend
     ports:
       - "5173:80"
@@ -62,10 +68,266 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-session-secret}
       APP_ENV: development
     depends_on:
       backend:
         condition: service_healthy
 
+  backup:
+    image: pgvector/pgvector:pg17
+    container_name: rag_backup
+    entrypoint: >
+      sh -c "
+        echo '[backup] service started, interval: $${BACKUP_INTERVAL_HOURS}h';
+        while true; do
+          sh /backup.sh;
+          sleep $$(( BACKUP_INTERVAL_HOURS * 3600 ));
+        done
+      "
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - backups:/backups
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: rag
+      PGPASSWORD: rag_secret
+      PGDATABASE: rag_db
+      BACKUP_DIR: /backups
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Zitadel — lightweight OIDC / OAuth2 identity provider
+  #
+  # Admin UI:  http://localhost:8088
+  # First-run credentials (change after setup):
+  #   Username: zitadel-admin@zitadel.localhost
+  #   Password: Password1!
+  #
+  # Zitadel creates its own "zitadel" database inside the existing postgres
+  # instance on first boot (the "rag" postgres user is a superuser so it has
+  # CREATE DATABASE rights).  Subsequent boots detect the DB and skip init.
+  # ---------------------------------------------------------------------------
+  zitadel:
+    restart: unless-stopped
+    image: ghcr.io/zitadel/zitadel:v2.54.3
+    command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
+    container_name: rag_zitadel
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: rag
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: rag_secret
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: rag
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: rag_secret
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALPORT: "8088"
+      ZITADEL_EXTERNALDOMAIN: localhost
+      # First-instance bootstrap — ignored after first run
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: zitadel-admin@zitadel.localhost
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Password1!
+    ports:
+      - "8088:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage (required by Langfuse v3 for events)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: rag_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9090:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local 2>/dev/null || curl -sf http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: rag_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/langfuse-events &&
+        mc mb --ignore-existing local/langfuse-media &&
+        echo 'MinIO buckets ready'
+      "
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Langfuse v3 — self-hosted LLM observability
+  #
+  # UI:     http://localhost:3000
+  # Login:  admin@rag.local / Admin1234!
+  #
+  # Pre-seeded project keys (used by the backend):
+  #   Public key : pk-lf-rag-platform-local
+  #   Secret key : sk-lf-rag-platform-local
+  #
+  # Architecture (v3+):
+  #   - langfuse     : Next.js web app
+  #   - langfuse-worker : background job worker (BullMQ)
+  #   - clickhouse   : trace/event storage
+  #   - redis        : job queue + API-key cache
+  #   - postgres     : relational data (langfuse_db schema)
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    container_name: rag_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/langfuse.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user clickhouse --password clickhouse --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: rag_langfuse_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/langfuse_db
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:clickhouse@clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      SALT: langfuse-salt-change-in-prod-32chars!!
+      NEXTAUTH_SECRET: langfuse-nextauth-secret-change-in-prod
+      ENCRYPTION_KEY: 5cb95a10aa34e164608a3ba3312edbbf5a96e31e6025b6f7c159e61042db97e8
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_LOG_LEVEL: warn
+      # MinIO / S3-compatible event + media storage
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse-media
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  langfuse:
+    image: langfuse/langfuse:3
+    container_name: rag_langfuse
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/langfuse_db
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:clickhouse@clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      NEXTAUTH_SECRET: langfuse-nextauth-secret-change-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      SALT: langfuse-salt-change-in-prod-32chars!!
+      ENCRYPTION_KEY: 5cb95a10aa34e164608a3ba3312edbbf5a96e31e6025b6f7c159e61042db97e8
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_LOG_LEVEL: warn
+      # MinIO / S3-compatible event + media storage
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse-media
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      # Bootstrap org, project and admin user on first run.
+      # LANGFUSE_INIT_ORG_ID and LANGFUSE_INIT_PROJECT_ID are required to
+      # trigger the init flow — the other INIT_* vars are ignored without them.
+      LANGFUSE_INIT_ORG_ID: rag-platform-org
+      LANGFUSE_INIT_ORG_NAME: RAG Platform
+      LANGFUSE_INIT_PROJECT_ID: rag-platform-project
+      LANGFUSE_INIT_PROJECT_NAME: rag-platform
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-rag-platform-local
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-rag-platform-local
+      LANGFUSE_INIT_USER_EMAIL: admin@rag.local
+      LANGFUSE_INIT_USER_PASSWORD: Admin1234!
+      LANGFUSE_INIT_USER_NAME: Admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      langfuse-worker:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:
+  backups:
+  clickhouse_data:
+  minio_data:

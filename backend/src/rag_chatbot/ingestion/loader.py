@@ -1,5 +1,11 @@
 from pathlib import Path
+import re
 import PyPDF2
+
+
+def _sanitize(text: str) -> str:
+    """Remove null bytes and other characters PostgreSQL UTF8 rejects."""
+    return re.sub(r"\x00", "", text)
 
 
 def load_file(path: str | Path) -> str:
@@ -10,11 +16,13 @@ def load_file(path: str | Path) -> str:
 
     suffix = p.suffix.lower()
     if suffix == ".pdf":
-        return _load_pdf(p)
+        text = _load_pdf(p)
     elif suffix in {".txt", ".md"}:
-        return p.read_text(encoding="utf-8")
+        text = p.read_text(encoding="utf-8", errors="replace")
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
+
+    return _sanitize(text)
 
 
 def _load_pdf(path: Path) -> str:
@@ -22,7 +30,6 @@ def _load_pdf(path: Path) -> str:
     with open(path, "rb") as f:
         reader = PyPDF2.PdfReader(f)
         for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                text_parts.append(text)
+            text = page.extract_text() or ""
+            text_parts.append(text)
     return "\n\n".join(text_parts)

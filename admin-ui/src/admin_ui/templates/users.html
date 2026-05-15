@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %} — Users{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div class="d-flex align-items-center gap-3">
+    <h4 class="mb-0">Users</h4>
+    {% set _org = (orgs | selectattr('id', 'equalto', active_org_id) | first) if active_org_id else none %}
+    {% if _org %}<span class="scope-badge scope-org"><i class="bi bi-building"></i>{{ _org.name }}</span>
+    {% else %}<span class="scope-badge scope-all"><i class="bi bi-globe2"></i>All organizations</span>{% endif %}
+  </div>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createUserModal">
+    <i class="bi bi-person-plus me-1"></i>New User
+  </button>
+</div>
+
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Org</th><th>Status</th><th>Last Login</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for u in users %}
+      <tr>
+        <td class="text-muted">{{ u.id }}</td>
+        <td>{{ u.name }}</td>
+        <td>{{ u.email }}</td>
+        <td>
+          {% if u.role == 'superadmin' %}
+          <span class="badge bg-danger">superadmin</span>
+          {% elif u.role == 'admin' %}
+          <span class="badge bg-warning text-dark">admin</span>
+          {% else %}
+          <span class="badge bg-secondary">member</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ u.org_name or '—' }}</td>
+        <td>
+          {% if u.is_active %}
+          <span class="badge bg-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary">Inactive</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ u.last_login_at[:16].replace('T',' ') if u.last_login_at else 'Never' }}</td>
+        <td class="d-flex gap-1">
+          <form method="post" action="/users/{{ u.id }}/toggle" class="d-inline">
+            <input type="hidden" name="is_active" value="{{ 'false' if u.is_active else 'true' }}">
+            {% if active_org_id %}<input type="hidden" name="org_id" value="{{ active_org_id }}">{% endif %}
+            <button class="btn btn-sm btn-outline-secondary">{{ 'Deactivate' if u.is_active else 'Activate' }}</button>
+          </form>
+          <form method="post" action="/users/{{ u.id }}/delete" class="d-inline"
+                onsubmit="return confirm('Delete user {{ u.email }}?')">
+            {% if active_org_id %}<input type="hidden" name="org_id" value="{{ active_org_id }}">{% endif %}
+            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-muted py-4">No users found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal fade" id="createUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/users/create">
+        <div class="modal-header">
+          <h5 class="modal-title">New User</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" required placeholder="Jane Smith">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input class="form-control" type="email" name="email" required placeholder="jane@example.com">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input class="form-control" type="password" name="password" required minlength="8">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Role</label>
+            <select class="form-select" name="role">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+              <option value="superadmin">Superadmin</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Organization <span class="text-muted small">(optional)</span></label>
+            <select class="form-select" name="org_id">
+              <option value="">None</option>
+              {% for o in orgs %}
+              <option value="{{ o.id }}" {% if active_org_id == o.id %}selected{% endif %}>{{ o.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
