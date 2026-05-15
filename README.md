@@ -99,12 +99,12 @@ First build: ~4 minutes (downloads images, installs deps). Subsequent starts: ~3
 
 ### Access the services
 
-| Service | URL | Default login |
+| Service | URL |
 |---|---|---|
-| Chat UI | http://localhost:5173 | alice@example.com / Alice123! |
-| Admin panel | http://localhost:8080 | admin@example.com / Admin123! |
-| Backend Swagger | http://localhost:8000/docs | — |
-| Langfuse traces | http://localhost:3000 | admin@rag.local / Admin1234! |
+| Chat UI | http://localhost:5173 |
+| Admin panel | http://localhost:8080 |
+| Backend Swagger | http://localhost:8000/docs | 
+| Langfuse traces | http://localhost:3000 |
 
 ### Verify it works
 
