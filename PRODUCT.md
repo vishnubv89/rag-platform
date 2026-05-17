@@ -30,6 +30,7 @@
 17. [Kubernetes / Helm Deployment](#17-kubernetes--helm-deployment)
 18. [Configuration Reference](#18-configuration-reference)
 19. [Directory Structure](#19-directory-structure)
+20. [A2A Enterprise Integration](#20-a2a-enterprise-integration)
 
 ---
 
@@ -1244,6 +1245,71 @@ rag-platform/
     ├── frontend/                     Deployment, Service, Ingress
     └── admin-ui/                     Deployment, Service, Ingress, Secret, ConfigMap
 ```
+
+## 20. A2A Enterprise Integration
+
+Knowledge Mesh exposes an **Agent-to-Agent (A2A) endpoint** that lets any A2A-compliant orchestrator — including Microsoft Copilot Studio — call the RAG agent as a sub-agent via JSON-RPC 2.0.
+
+### Protocol overview
+
+| Layer | Detail |
+|-------|--------|
+| Transport | HTTP POST, SSE for streaming |
+| Wire format | JSON-RPC 2.0 (`jsonrpc`, `method`, `params`, `id`) |
+| Auth | Bearer token (Zitadel JWT) |
+| Streaming | `tasks/sendSubscribe` → SSE event stream |
+| Non-streaming | `tasks/send` → single JSON response |
+
+### Endpoints
+
+```
+POST /a2a                 Agent Card (capability discovery)
+POST /a2a/tasks/send      Synchronous task execution
+POST /a2a/tasks/sendSubscribe  Streaming task execution (SSE)
+```
+
+### Agent Card (capability advertisement)
+
+```json
+{
+  "name": "knowledge-mesh-rag",
+  "version": "0.3.0",
+  "description": "Agentic RAG over your org's knowledge base",
+  "capabilities": { "streaming": true },
+  "skills": [{ "id": "rag_query", "name": "Knowledge Base Q&A" }]
+}
+```
+
+### How Copilot Studio connects
+
+1. Copilot Studio fetches the Agent Card from `POST /a2a`
+2. Each user turn is sent via `tasks/sendSubscribe` with `{"text": "<user_message>"}` in `params.message.parts`
+3. The A2A router extracts the text, builds the full `AgentState`, and streams the RAG graph response back as SSE
+4. The `org_id` is derived from the JWT so tenant isolation is automatic
+
+### State initialization (all fields required)
+
+```python
+state = {
+    "messages":          [{"role": "user", "content": user_text}],
+    "query":             user_text,
+    "org_id":            user.get("org_id"),
+    "loop_count":        0,
+    "skip_retrieval":    False,
+    "kb_overview":       False,
+    "grading_passed":    False,
+    "retrieved_docs":    [],
+    "answer":            "",
+    "source_chunk_ids":  [],
+    "sources":           [],
+    "llm_config":        {},
+    "user_zitadel_token": None,
+}
+```
+
+### Full integration guide
+
+See **`INTEGRATIONS.md`** for the complete implementation: A2A router, FastAPI mounting, Copilot Studio custom connector setup, and On-Behalf-Of token exchange for downstream ServiceNow calls.
 
 ---
 
