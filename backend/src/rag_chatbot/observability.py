@@ -48,3 +48,37 @@ def get_langfuse():
             return None
 
     return _langfuse
+
+
+def init_datadog() -> None:
+    """Initialise Datadog APM tracing if DD_ENABLED=true."""
+    from rag_chatbot.config import settings
+    if not settings.dd_enabled or not settings.dd_api_key:
+        return
+    try:
+        import ddtrace
+        ddtrace.patch_all()
+    except ImportError:
+        log.warning("ddtrace not installed; Datadog APM disabled")
+
+
+def init_otel() -> None:
+    """Initialise OpenTelemetry exporter for Dynatrace (or any OTLP endpoint)."""
+    from rag_chatbot.config import settings
+    if not settings.otel_endpoint:
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+        exporter = OTLPSpanExporter(
+            endpoint=settings.otel_endpoint,
+            headers={"Authorization": f"Api-Token {settings.otel_token}"},
+        )
+        provider = TracerProvider()
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+    except ImportError:
+        log.warning("opentelemetry packages not installed; OTEL disabled")

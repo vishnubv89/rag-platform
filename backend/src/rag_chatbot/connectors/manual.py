@@ -5,7 +5,6 @@ Config keys: none (upload is handled by the API directly).
 This connector acts as the "source" for documents ingested via the UI/API.
 list_documents and fetch_document are no-ops — sync is always push-only.
 """
-import hashlib
 from rag_chatbot.connectors.base import BaseConnector, ConnectorDocument, RemoteDocument
 from rag_chatbot.connectors.registry import register
 

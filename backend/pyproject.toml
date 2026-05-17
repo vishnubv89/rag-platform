@@ -31,6 +31,10 @@ dependencies = [
     "slowapi>=0.1.9",
     "cryptography>=42.0.0",
     "langfuse>=4.0.0",
+    "slack-sdk>=3.27.0",
+    "ddtrace>=2.0.0",
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.25.0",
 ]
 
 [project.optional-dependencies]

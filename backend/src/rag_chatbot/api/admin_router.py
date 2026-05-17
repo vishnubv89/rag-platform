@@ -11,17 +11,17 @@ Groups:
 import asyncio
 import hashlib
 import json
-import os
 import secrets
-import time
-from datetime import datetime, timezone
-from rag_chatbot.api.audit import log_action
+import tempfile
+from pathlib import Path as FPath
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 
-from rag_chatbot.api.deps import verify_admin_key, require_admin, assert_org_access
+from rag_chatbot.api.audit import log_action
+from rag_chatbot.api.deps import verify_admin_key
 from rag_chatbot.db.connection import get_pool, run_schema
+from rag_chatbot.ingestion.pipeline import ingest_text, ingest_file
 from rag_chatbot.llm.client import generate as _llm_generate
 
 Dep = Depends(verify_admin_key)
@@ -173,10 +173,6 @@ async def revoke_key(org_id: int, key_id: int):
 # ─────────────────────────────────────────────
 # Documents
 # ─────────────────────────────────────────────
-
-import tempfile
-from pathlib import Path as FPath
-from rag_chatbot.ingestion.pipeline import ingest_text, ingest_file
 
 
 @router.get("/docs")

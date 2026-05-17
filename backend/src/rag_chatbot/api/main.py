@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from rag_chatbot.api.rate_limit import limiter, rate_limit_exceeded_handler
@@ -25,7 +24,7 @@ from rag_chatbot.auth.router import router as auth_router
 from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.llm.client import generate as llm_generate
-from rag_chatbot.observability import get_langfuse
+from rag_chatbot.observability import get_langfuse, init_datadog, init_otel
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -39,6 +38,8 @@ def _is_valid_uuid(value: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await run_schema()
+    init_datadog()
+    init_otel()
     start_scheduler()
     yield
     stop_scheduler()
@@ -144,6 +145,9 @@ async def chat(req: ChatRequest, request: Request):
         "llm_config": {},
         "org_id": None,
         "user_zitadel_token": extract_zitadel_token(request),
+        "action_intent": None,
+        "action_params": {},
+        "action_result": None,
     }
     # Resolve org_id: user's own org > explicit request field > default org
     pool = await get_pool()
@@ -248,6 +252,9 @@ async def chat_stream(req: ChatRequest, request: Request):
         "llm_config": llm_config,
         "org_id": org_id,
         "user_zitadel_token": extract_zitadel_token(request),
+        "action_intent": None,
+        "action_params": {},
+        "action_result": None,
     }
 
     lf = get_langfuse()
@@ -416,7 +423,8 @@ _FOLLOWUP_SYSTEM = (
 @limiter.limit("60/minute")
 async def chat_followup(req: FollowUpRequest, request: Request):
     await require_user(request)
-    import asyncio, json as _json
+    import asyncio
+    import json as _json
     recent = req.messages[-6:]
     history = "\n".join(
         f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent

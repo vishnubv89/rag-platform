@@ -6,7 +6,7 @@ Auth endpoints:
   POST /auth/logout  — clear refresh cookie
   GET  /auth/me      — current user info
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
 
 import jwt

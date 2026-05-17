@@ -9,7 +9,6 @@ Config keys:
   category       (optional) filter by category sys_id
   ingest_incidents  (optional) "true" to also ingest closed incidents as KB articles
 """
-import hashlib
 from dataclasses import dataclass, field
 
 import httpx

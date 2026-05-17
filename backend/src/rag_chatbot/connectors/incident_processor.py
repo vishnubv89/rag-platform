@@ -13,12 +13,10 @@ Pipeline:
 import json
 import logging
 import math
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from rag_chatbot.connectors.servicenow import IncidentRecord, ServiceNowConnector
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
-from rag_chatbot.ingestion.chunker import chunk_text
 from rag_chatbot.llm.client import generate
 
 log = logging.getLogger(__name__)
