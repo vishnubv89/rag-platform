@@ -1,4 +1,3 @@
-from pgvector.asyncpg import register_vector
 
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.embeddings.gemini_embedder import embed_text

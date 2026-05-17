@@ -1171,7 +1171,7 @@ rag-platform/
 │       │   ├── rate_limit.py         slowapi limiter config
 │       │   └── zitadel_enrich.py     /internal/zitadel/enrich — Action webhook handler
 │       ├── agent/
-│       │   ├── state.py              AgentState TypedDict (14 fields)
+│       │   ├── state.py              AgentState TypedDict (13 fields)
 │       │   ├── nodes.py              8 nodes: contextualize, intent, retriever, grader,
 │       │   │                         rewriter, generator, clarify, kb_overview
 │       │   └── graph.py              LangGraph StateGraph + conditional edges

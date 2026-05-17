@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import json
 from pathlib import Path
@@ -8,7 +9,6 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from rag_chatbot.api.rate_limit import limiter, rate_limit_exceeded_handler
@@ -416,7 +416,6 @@ _FOLLOWUP_SYSTEM = (
 @limiter.limit("60/minute")
 async def chat_followup(req: FollowUpRequest, request: Request):
     await require_user(request)
-    import asyncio, json as _json
     recent = req.messages[-6:]
     history = "\n".join(
         f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent
@@ -434,7 +433,7 @@ async def chat_followup(req: FollowUpRequest, request: Request):
             None, lambda: llm_generate(prompt, _FOLLOWUP_SYSTEM, {"llm_provider": "gemini"})
         )
         start, end = raw.index("["), raw.rindex("]") + 1
-        suggestions = _json.loads(raw[start:end])[:3]
+        suggestions = json.loads(raw[start:end])[:3]
         suggestions = [s for s in suggestions if isinstance(s, str)]
     except Exception:
         suggestions = []

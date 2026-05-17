@@ -18,7 +18,7 @@ export function OrgSelector() {
       const assigned = orgs.find((o) => o.id === user.org_id) ?? null;
       setOrg(assigned);
     }
-  }, [orgs, user?.org_id, isSuperadmin]);
+  }, [orgs, user?.org_id, isSuperadmin, setOrg]);
 
   // Non-superadmin: show static label if they have an org, nothing otherwise
   if (!isSuperadmin) {
