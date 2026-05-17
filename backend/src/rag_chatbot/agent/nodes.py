@@ -88,15 +88,52 @@ _CHITCHAT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ACTION_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("servicenow_create_incident", re.compile(
+        r"(create|file|open|raise|log)\s+(an?\s+)?(incident|ticket|case|outage|p[1-4])",
+        re.IGNORECASE
+    )),
+    ("servicenow_create_change", re.compile(
+        r"(create|submit|raise|open)\s+(an?\s+)?(change\s+request|change\s+ticket|RFC|CHG)",
+        re.IGNORECASE
+    )),
+    ("jira_create_issue", re.compile(
+        r"(create|file|open|add|log)\s+(an?\s+)?(jira\s+)?(issue|bug|story|task|ticket)",
+        re.IGNORECASE
+    )),
+    ("jira_triage_issue", re.compile(
+        r"(triage|transition|update|move|close|resolve)\s+(jira\s+)?(issue|ticket|bug)\s+([A-Z]+-\d+)",
+        re.IGNORECASE
+    )),
+    ("slack_send_message", re.compile(
+        r"(send|post|notify|message|alert)\s+.{0,40}(slack|channel|#[a-z])",
+        re.IGNORECASE
+    )),
+    ("teams_send_message", re.compile(
+        r"(send|post|notify|message|alert)\s+.{0,40}(teams|ms\s+teams)",
+        re.IGNORECASE
+    )),
+]
+
 
 async def intent_node(state: AgentState) -> dict:
     # Use the (possibly contextualized) query set by contextualize_node
     query = state["query"].strip()
     is_chitchat = bool(_CHITCHAT_RE.match(query))
     is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat
+
+    action_intent = None
+    for action_name, pattern in _ACTION_PATTERNS:
+        if pattern.search(query):
+            action_intent = action_name
+            break
+
+    skip = is_chitchat or is_overview or (action_intent is not None)
     return {
-        "skip_retrieval": is_chitchat or is_overview,
+        "skip_retrieval": skip,
         "kb_overview": is_overview,
+        "action_intent": action_intent,
+        "action_params": {},
     }
 
 
@@ -460,6 +497,72 @@ async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
     answer = await _stream_llm(f"User asked: {query}", system, cfg, config)
     return {
         "answer": answer,
+        "source_chunk_ids": [],
+        "sources": [],
+        "messages": [{"role": "assistant", "content": answer}],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Action node — execute detected action intents (tickets, notifications, etc.)
+# ---------------------------------------------------------------------------
+
+async def action_node(state: AgentState, config: RunnableConfig) -> dict:
+    """
+    Execute the detected action (create ticket, send notification, etc.).
+    Uses LLM to extract structured params from the query, then dispatches.
+    """
+    import json as _json
+    from rag_chatbot.agent.actions import servicenow_actions, jira_actions, notify  # noqa: F401 trigger registration
+    from rag_chatbot.agent.actions.registry import dispatch as _dispatch_action
+
+    action_intent = state.get("action_intent")
+    action_params = state.get("action_params") or {}
+    query = state["query"]
+    cfg = state.get("llm_config", {})
+
+    # Use LLM to extract structured params from the query
+    extract_system = (
+        "Extract action parameters from the user query as a JSON object. "
+        "For incident creation: {short_description, description, urgency (1/2/3), category}. "
+        "For Jira: {summary, description, project_key, issue_type, priority}. "
+        "For Jira triage: {issue_key, transition_name, comment}. "
+        "For notifications: {channel, text} or {webhook_url, text, title}. "
+        "Return ONLY valid JSON, no explanation."
+    )
+    loop = asyncio.get_running_loop()
+    try:
+        raw = await loop.run_in_executor(
+            None, lambda: _generate(f"Query: {query}", extract_system, cfg)
+        )
+        start = raw.index("{")
+        end = raw.rindex("}") + 1
+        extracted = _json.loads(raw[start:end])
+        action_params = {**action_params, **extracted}
+    except Exception:
+        pass  # use whatever params we have
+
+    result = await _dispatch_action(action_intent or "", action_params, state)
+
+    # Format the response
+    if result.success:
+        action_summary = result.message
+        if result.data.get("link"):
+            action_summary += f"\n\nLink: {result.data['link']}"
+    else:
+        action_summary = f"I wasn't able to complete that action: {result.message}"
+
+    answer = await _stream_llm(
+        f"The following action was performed on behalf of the user:\n{action_summary}\n\n"
+        "Relay this result to the user in a friendly, concise way. Include the link if present.",
+        "You are a helpful assistant relaying action results to the user.",
+        cfg,
+        config,
+    )
+
+    return {
+        "answer": answer,
+        "action_result": {"success": result.success, "message": result.message, "data": result.data},
         "source_chunk_ids": [],
         "sources": [],
         "messages": [{"role": "assistant", "content": answer}],

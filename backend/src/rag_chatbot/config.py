@@ -74,5 +74,35 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = "http://langfuse:3000"
 
+    # Slack connector
+    slack_bot_token: str = ""
+
+    # Microsoft Teams / Azure AD
+    azure_tenant_id: str = ""
+    azure_client_id: str = ""
+    azure_client_secret: str = ""
+
+    # Okta
+    okta_domain: str = ""        # e.g. acme.okta.com
+    okta_api_token: str = ""
+
+    # DLP (Nightfall)
+    nightfall_api_key: str = ""
+    dlp_enabled: bool = False    # master toggle
+
+    # Datadog APM
+    dd_api_key: str = ""
+    dd_app_key: str = ""
+    dd_enabled: bool = False
+
+    # Dynatrace / OpenTelemetry
+    otel_endpoint: str = ""      # e.g. https://xxxxx.live.dynatrace.com/api/v2/otlp
+    otel_token: str = ""
+
+    # dbt semantic layer
+    dbt_server_url: str = ""     # e.g. grpc+tls://semantic-layer.cloud.getdbt.com:443
+    dbt_environment_id: str = ""
+    dbt_service_token: str = ""
+
 
 settings = Settings()

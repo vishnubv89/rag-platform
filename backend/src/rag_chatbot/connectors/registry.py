@@ -25,4 +25,4 @@ def available_types() -> list[str]:
 
 
 # Import all connectors to trigger registration
-from rag_chatbot.connectors import manual, servicenow, sharepoint, confluence, gdrive, zendesk, jira  # noqa: E402, F401
+from rag_chatbot.connectors import manual, servicenow, sharepoint, confluence, gdrive, zendesk, jira, slack, teams, workday, azure_ad, okta  # noqa: E402, F401

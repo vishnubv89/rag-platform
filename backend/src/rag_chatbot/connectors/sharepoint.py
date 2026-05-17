@@ -10,7 +10,6 @@ Config keys:
 
 Permissions required: Sites.Read.All (application permission)
 """
-import hashlib
 import re
 
 import httpx

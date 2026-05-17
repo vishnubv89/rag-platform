@@ -6,6 +6,7 @@ from pathlib import Path
 from rag_chatbot.db.connection import get_pool, run_schema
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
 from rag_chatbot.ingestion.chunker import semantic_chunk_text as chunk_text
+from rag_chatbot.ingestion.dlp import scan_text, DLPBlockedError
 from rag_chatbot.ingestion.loader import load_file
 
 
@@ -20,6 +21,12 @@ async def ingest_file(
     p = Path(file_path)
     title = title or p.stem
     text = load_file(p)
+
+    try:
+        await scan_text(text)
+    except DLPBlockedError as e:
+        raise ValueError(f"DLP blocked ingestion: {e.findings}") from e
+
     chunks = chunk_text(text)
 
     if not chunks:
@@ -55,6 +62,11 @@ async def ingest_text(
     org_id: int | None = None,
 ) -> dict:
     """Chunk, embed, and store raw text content atomically."""
+    try:
+        await scan_text(text)
+    except DLPBlockedError as e:
+        raise ValueError(f"DLP blocked ingestion: {e.findings}") from e
+
     chunks = chunk_text(text)
     if not chunks:
         raise ValueError("No chunks extracted from provided text")

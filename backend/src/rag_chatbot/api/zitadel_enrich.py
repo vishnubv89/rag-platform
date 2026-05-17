@@ -17,7 +17,7 @@ Never expose this path through a public ingress.
 import logging
 
 from fastapi import APIRouter, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from rag_chatbot.config import settings
 from rag_chatbot.db.connection import get_pool
