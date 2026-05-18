@@ -67,6 +67,77 @@ async def create_incident(params: dict, state) -> ActionResult:
         return ActionResult(success=False, message=f"Failed to create incident: {e}")
 
 
+@register_action("servicenow_resolve_incident")
+async def resolve_incident(params: dict, state) -> ActionResult:
+    """
+    Resolve / close an existing ServiceNow incident.
+    params: {incident_number?, sys_id?, resolution_notes?}
+    If neither is provided the most-recent incident from the conversation is used.
+    """
+    cfg = await _get_snow_config(state.get("org_id"))
+    if not cfg:
+        return ActionResult(success=False, message="No ServiceNow connector configured for this org.")
+
+    # Allow caller to pass sys_id directly or look it up by number
+    sys_id = params.get("sys_id")
+    incident_number = params.get("incident_number") or params.get("number")
+
+    # Fall back: scan message history for the most-recently mentioned INC number
+    if not sys_id and not incident_number:
+        import re as _re
+        for msg in reversed(state.get("messages", [])):
+            m = _re.search(r"\bINC\d+\b", msg.get("content", ""), _re.IGNORECASE)
+            if m:
+                incident_number = m.group(0).upper()
+                break
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            base = cfg["instance_url"].rstrip("/")
+            auth = (cfg["username"], cfg["password"])
+            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+            # Look up sys_id by incident number if we don't have it
+            if not sys_id and incident_number:
+                resp = await client.get(
+                    f"{base}/api/now/table/incident",
+                    auth=auth,
+                    headers=headers,
+                    params={"sysparm_query": f"number={incident_number}", "sysparm_fields": "sys_id,number", "sysparm_limit": 1},
+                )
+                resp.raise_for_status()
+                records = resp.json().get("result", [])
+                if not records:
+                    return ActionResult(success=False, message=f"Incident {incident_number} not found.")
+                sys_id = records[0]["sys_id"]
+
+            if not sys_id:
+                return ActionResult(success=False, message="Could not determine which incident to resolve. Please specify the incident number.")
+
+            # Resolve: state=6 (Resolved) in ServiceNow
+            patch_payload = {
+                "state": "6",
+                "close_code": "Solved (Permanently)",
+                "close_notes": params.get("resolution_notes", "Resolved via RAG agent."),
+            }
+            r = await client.patch(
+                f"{base}/api/now/table/incident/{sys_id}",
+                auth=auth,
+                headers=headers,
+                json=patch_payload,
+            )
+            r.raise_for_status()
+            result = r.json()["result"]
+            number = result.get("number", incident_number or sys_id)
+            return ActionResult(
+                success=True,
+                message=f"Incident {number} has been resolved successfully.",
+                data={"number": number, "sys_id": sys_id},
+            )
+    except Exception as e:
+        return ActionResult(success=False, message=f"Failed to resolve incident: {e}")
+
+
 @register_action("servicenow_create_change")
 async def create_change_request(params: dict, state) -> ActionResult:
     """
