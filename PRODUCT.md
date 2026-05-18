@@ -60,7 +60,16 @@ The **RAG Platform** is a production-grade, multi-tenant AI chatbot backed by **
 | **Persistent org scope** | Admin panel org selection stored in a signed httponly cookie — survives page navigations and redirects |
 | **Observability** | Langfuse v3 tracing for every LangGraph node, LLM call, and retrieval step with user/session/org attribution |
 | **Rate limiting** | Per-IP rate limiting on all chat and ingest endpoints via `slowapi` |
-| **Connector support** | ServiceNow, SharePoint, Confluence, Google Drive, Zendesk, and Jira connectors for automated knowledge sync |
+| **Action routing** | Natural-language action commands ("create a P2 incident", "resolve INC0010001", "post to #ops-alerts") are detected by regex in `intent_node` and routed to `action_node`, which calls live APIs directly — bypassing RAG retrieval entirely |
+| **ServiceNow actions** | Create incidents (P1–P4), resolve/close incidents by number or conversational reference, create change requests — all via ServiceNow Table API |
+| **Jira actions** | Create issues with project/priority extraction, triage/transition existing issues by key |
+| **Notification dispatch** | Post rich messages to Slack channels (via `slack-sdk`) or Microsoft Teams (via webhook) from a chat prompt |
+| **ABAC** | Attribute-Based Access Control on document retrieval: `document_labels` tags docs with sensitivity attributes; `user_attributes` carries clearance values; hybrid search enforces the match at query time with no post-filter overhead |
+| **DLP pre-ingestion** | Data Loss Prevention scan before chunking: regex rules block API keys, SSNs, credit card numbers, passwords; optional Nightfall API integration for richer classification |
+| **Connector support** | ServiceNow, SharePoint, Confluence, Google Drive, Zendesk, Jira, Slack, Teams, Workday, Azure AD / Entra ID, and Okta connectors for automated knowledge sync and identity sync |
+| **Identity sync** | Azure AD / Okta user attribute sync populates `user_attributes` for ABAC enforcement |
+| **Datadog / OTEL** | Optional Datadog APM (`ddtrace`) and OpenTelemetry OTLP export for production observability alongside Langfuse |
+| **Dashboards** | Power BI and Looker dashboard embed tab in the frontend (`BIEmbed`) — configure via `VITE_POWERBI_EMBED_URL` / `VITE_LOOKER_EMBED_URL` |
 | **MCP integration** | Retrieval tools exposed via Model Context Protocol (MCP) for integration with Claude Desktop and other LLM agents |
 | **Admin panel** | Web-based admin for document management, model settings, org config, API key rotation, analytics, connector management, and SSO role assignment |
 
@@ -208,9 +217,13 @@ Frontend renders tokens in real time; source citations appear on completion
 | `api/main.py` | FastAPI app, `/chat`, `/chat/stream`, `/chat/feedback`, auth middleware |
 | `api/admin_router.py` | Admin endpoints (orgs, docs, config, analytics, system) |
 | `api/deps.py` | JWT + `X-Admin-Key` verification; `require_user()`, `extract_zitadel_token()` |
-| `agent/graph.py` | LangGraph StateGraph — wires all 8 nodes and conditional edges |
-| `agent/nodes.py` | `contextualize`, `intent`, `retriever`, `grader`, `rewriter`, `generator`, `clarify`, `kb_overview` |
-| `agent/state.py` | `AgentState` TypedDict |
+| `agent/graph.py` | LangGraph StateGraph — wires all 9 nodes and conditional edges |
+| `agent/nodes.py` | `contextualize`, `intent`, `action`, `retriever`, `grader`, `rewriter`, `generator`, `clarify`, `kb_overview` |
+| `agent/state.py` | `AgentState` TypedDict (17 fields) |
+| `agent/actions/registry.py` | `@register_action` decorator + `dispatch()` for action handler lookup |
+| `agent/actions/servicenow_actions.py` | `create_incident`, `resolve_incident`, `create_change_request` |
+| `agent/actions/jira_actions.py` | `create_issue`, `triage_issue` |
+| `agent/actions/notify.py` | `send_slack_message`, `send_teams_message` |
 | `llm/client.py` | Unified multi-LLM client: `generate()` + `stream_generate()` |
 | `observability.py` | Langfuse v4 singleton + `get_langfuse()` |
 | `retrieval/vector_store.py` | `hybrid_search()` — RRF SQL, org-scoped, dedup by `external_id` |
@@ -366,6 +379,9 @@ class AgentState(TypedDict):
     llm_config:         dict          # per-org runtime config from app_config table
     org_id:             int | None    # org scope for retrieval and logging
     user_zitadel_token: str | None    # Zitadel access token for OBO exchange
+    action_intent:      str | None    # set by intent_node if an action pattern matched
+    action_params:      dict          # LLM-extracted params for the action (e.g. incident number)
+    action_result:      dict | None   # result returned by the action handler
 ```
 
 ### Graph edges
@@ -377,6 +393,7 @@ START
             ▼
        intent_node
             ├─ [kb_overview]  ─────────────────────────────────► kb_overview_node ──► END
+            ├─ [action_intent] ─────────────────────────────────► action_node ───────► END
             ├─ [chitchat/skip] ─────────────────────────────────► generator_node ────► END
             └─ [retrieve] ──► retriever_node
                                    └─► grader_node
@@ -393,7 +410,10 @@ START
 Uses the last 6 prior messages (3 exchanges) to rewrite ambiguous follow-ups into a fully standalone question via a lightweight LLM call. First turn: no-op, passes query through unchanged. Output becomes `state["query"]` — all downstream nodes use this field.
 
 **`intent_node`**
-Regex-based classification — no LLM call. Classifies the contextualized `state["query"]` into: retrieve (default), chitchat (greetings, thanks), or kb-overview (summarise/list document topics).
+Regex-based classification — no LLM call. Classifies the contextualized `state["query"]` into four routes: retrieve (default), chitchat (greetings, thanks), kb-overview (summarise/list document topics), or **action** (natural-language commands matched against `_ACTION_PATTERNS` — patterns for `servicenow_create_incident`, `servicenow_resolve_incident`, `servicenow_create_change`, `jira_create_issue`, `jira_triage_issue`, `slack_send_message`, `teams_send_message`).
+
+**`action_node`**
+Fires when `action_intent` is set. Uses a lightweight LLM call to extract structured parameters from the raw query (e.g. incident number, priority, channel name). Dispatches to the registered action handler via `agent/actions/registry.py`. Handlers call live external APIs (ServiceNow Table API, Jira REST, Slack SDK, Teams webhook). Returns the action result as a friendly natural-language response. No vector search is performed — retrieval is bypassed entirely.
 
 **`kb_overview_node`**
 Fires when `kb_overview=True`. Fetches all document titles from the DB for the org, calls the LLM to generate a grouped topic overview, and streams the result. No vector search needed.
@@ -805,10 +825,32 @@ Constraint: `UNIQUE (org_id, key)`.
 |---|---|---|
 | `id` | `BIGSERIAL PK` | |
 | `org_id` | `BIGINT FK` | |
-| `connector_type` | `TEXT` | `servicenow`, `sharepoint`, `confluence`, `googledrive`, `zendesk`, `jira` |
+| `connector_type` | `TEXT` | `servicenow`, `sharepoint`, `confluence`, `googledrive`, `zendesk`, `jira`, `slack`, `teams`, `workday`, `azure_ad`, `okta` |
 | `config` | `JSONB` | Connector-specific settings (instance URL, client ID, etc.) |
 | `is_active` | `BOOLEAN` | |
 | `last_synced_at` | `TIMESTAMPTZ` | |
+
+#### `document_labels` *(ABAC)*
+
+Tags documents with sensitivity attributes for Attribute-Based Access Control. A document is accessible only when the requesting user has a matching `user_attributes` value for **every** label type on that document.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `BIGSERIAL PK` | |
+| `doc_id` | `BIGINT FK → documents` | Cascade delete |
+| `label_type` | `TEXT` | Attribute category, e.g. `clearance`, `department`, `region` |
+| `label_value` | `TEXT` | Required value, e.g. `secret`, `finance`, `eu` |
+
+#### `user_attributes` *(ABAC)*
+
+Stores per-user attribute values. Populated by identity sync connectors (Azure AD, Okta) or set manually. Matched against `document_labels` at query time inside the RRF SQL.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `BIGSERIAL PK` | |
+| `user_id` | `TEXT` | Zitadel subject claim or local user email |
+| `attr_type` | `TEXT` | Matches `document_labels.label_type` |
+| `attr_value` | `TEXT` | Matches `document_labels.label_value` |
 
 ---
 
@@ -908,6 +950,8 @@ All prefixed with `/admin`.
 | **Internal Zitadel Action** | `ZITADEL_ACTION_SECRET` shared secret | `/internal/zitadel/enrich` |
 | **CORS** | FastAPI `CORSMiddleware` | Prevents cross-origin chat requests |
 | **Rate limiting** | slowapi per-IP, 20/min | All `/chat` and `/ingest` endpoints |
+| **ABAC** | Correlated SQL subquery in `_HYBRID_SQL_ABAC`; enforced when `user_id` is present | Retrieval (`hybrid_search`) |
+| **DLP** | Pre-ingestion regex scan + optional Nightfall API; raises `DLPBlockedError` to abort ingest | `ingest_text()`, `ingest_file()` |
 
 ### Secrets handling
 
@@ -1021,11 +1065,19 @@ docker compose up --build
 ### Individual service commands
 
 ```bash
-docker compose restart backend     # pick up code changes (backend mounts source)
+# Backend is a baked image (no source volume mount).
+# To pick up Python code changes you must rebuild, then restart:
+docker compose build backend && docker compose up -d backend
+
 docker compose logs -f backend     # tail logs
 docker compose exec postgres psql -U rag -d rag_db   # psql shell
 docker compose exec backend python -m rag_chatbot.db.connection  # re-run migrations
 ```
+
+> **Restart policy:** All stateful and application services declare `restart: unless-stopped`. If postgres exits unexpectedly (e.g. after a rebuild cycle), bring it back first — other services depend on it:
+> ```bash
+> docker compose up -d postgres && sleep 8 && docker compose up -d
+> ```
 
 ### Stopping
 
@@ -1104,6 +1156,28 @@ The backend chart includes an **HPA** (min 2, max 6 replicas at 70% CPU).
 | `LANGFUSE_HOST` | No | `http://langfuse:3000` | Langfuse server URL |
 | `ZITADEL_ISSUER` | No | — | Zitadel OIDC issuer URL |
 | `ZITADEL_BACKEND_CLIENT_ID` | No | — | Zitadel client ID for token introspection |
+| `ZITADEL_ACTION_SECRET` | No | — | Shared secret for Zitadel Action → `/internal/zitadel/enrich` webhook |
+| **Slack** | | | |
+| `SLACK_BOT_TOKEN` | No | — | Bot token for Slack notification dispatch (`xoxb-…`) |
+| `SLACK_DEFAULT_CHANNEL` | No | — | Fallback channel when no channel is specified in the action |
+| **Microsoft Teams** | | | |
+| `TEAMS_WEBHOOK_URL` | No | — | Incoming webhook URL for Teams notification dispatch |
+| **Azure AD / Entra ID** | | | |
+| `AZURE_TENANT_ID` | No | — | Azure AD tenant ID for identity sync |
+| `AZURE_CLIENT_ID` | No | — | Azure AD app client ID |
+| `AZURE_CLIENT_SECRET` | No | — | Azure AD app secret |
+| **Okta** | | | |
+| `OKTA_DOMAIN` | No | — | Okta org domain (e.g. `company.okta.com`) |
+| `OKTA_API_TOKEN` | No | — | Okta API token for user attribute sync |
+| **DLP** | | | |
+| `NIGHTFALL_API_KEY` | No | — | Nightfall DLP API key (regex rules active even without this) |
+| **Datadog** | | | |
+| `DD_AGENT_HOST` | No | — | Datadog Agent host for APM traces; leave unset to disable |
+| `DD_SERVICE` | No | `rag-platform` | Datadog service name |
+| `DD_ENV` | No | `production` | Datadog environment tag |
+| **OpenTelemetry** | | | |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | — | OTLP endpoint for OTEL traces (e.g. `http://otel-collector:4318`); leave unset to disable |
+| `OTEL_SERVICE_NAME` | No | `rag-platform` | OTEL service name |
 
 ### Per-org runtime config (`app_config` table)
 
@@ -1154,7 +1228,7 @@ rag-platform/
 │
 ├── .env.example                      Root env template
 ├── .env                              Local secrets (git-ignored)
-├── docker-compose.yml                All services + volumes (13 services)
+├── docker-compose.yml                All services + volumes (12 services)
 ├── clickhouse/
 │   └── config.xml                    ClickHouse Keeper + cluster config (single-node)
 │
@@ -1171,12 +1245,18 @@ rag-platform/
 │       │   ├── rate_limit.py         slowapi limiter config
 │       │   └── zitadel_enrich.py     /internal/zitadel/enrich — Action webhook handler
 │       ├── agent/
-│       │   ├── state.py              AgentState TypedDict (14 fields)
-│       │   ├── nodes.py              8 nodes: contextualize, intent, retriever, grader,
+│       │   ├── state.py              AgentState TypedDict (17 fields)
+│       │   ├── nodes.py              9 nodes: contextualize, intent, action, retriever, grader,
 │       │   │                         rewriter, generator, clarify, kb_overview
-│       │   └── graph.py              LangGraph StateGraph + conditional edges
+│       │   ├── graph.py              LangGraph StateGraph + conditional edges
+│       │   └── actions/
+│       │       ├── registry.py       @register_action decorator + dispatch()
+│       │       ├── servicenow_actions.py  create_incident, resolve_incident, create_change_request
+│       │       ├── jira_actions.py   create_issue, triage_issue
+│       │       └── notify.py         send_slack_message, send_teams_message
 │       ├── auth/
-│       │   └── router.py             /auth/login, /auth/me, /auth/logout
+│       │   ├── router.py             /auth/login, /auth/me, /auth/logout
+│       │   └── abac.py               label_document(), get_user_attributes(), get_document_labels()
 │       ├── llm/
 │       │   └── client.py             Unified multi-LLM: generate() + stream_generate()
 │       │                             Supports Gemini / Anthropic / NVIDIA NIM
@@ -1189,37 +1269,56 @@ rag-platform/
 │       ├── ingestion/
 │       │   ├── loader.py             PDF / TXT / MD → raw text
 │       │   ├── chunker.py            tiktoken chunking (300 tokens, 50 overlap)
-│       │   └── pipeline.py           ingest_file(), ingest_text()
+│       │   ├── pipeline.py           ingest_file(), ingest_text() — runs DLP scan before chunking
+│       │   └── dlp.py                DLPScanner: regex rules + Nightfall API stub; raises DLPBlockedError
 │       ├── connectors/
 │       │   ├── sync_engine.py        APScheduler-based connector sync
-│       │   ├── snow_connector.py     ServiceNow ingestion
+│       │   ├── snow_connector.py     ServiceNow knowledge ingestion
 │       │   ├── snow_token_exchange.py Zitadel → ServiceNow OBO exchange
+│       │   ├── slack.py              Slack channel message ingestion
+│       │   ├── teams.py              Microsoft Teams channel ingestion
+│       │   ├── workday.py            Workday HR data connector
+│       │   ├── azure_ad.py           Azure AD / Entra ID user attribute sync
+│       │   ├── okta.py               Okta user attribute sync
 │       │   └── …                    SharePoint, Confluence, Google Drive, Zendesk, Jira
 │       └── db/
 │           ├── connection.py          asyncpg pool, pgvector codec registration
 │           ├── schema.sql             Base tables + indexes
 │           └── migrations/
 │               ├── 001_multitenancy.sql   organizations, api_keys, app_config, chat_logs
-│               └── 002_users_connectors.sql  users, connectors, feedback column
+│               ├── 002–011_*.sql          incremental schema evolution
+│               └── 012_abac_labels.sql    document_labels, user_attributes (ABAC)
 │
 ├── frontend/
 │   ├── Dockerfile                    Multi-stage: node builder → nginx
 │   ├── nginx.conf                    SPA fallback
 │   ├── vite.config.ts
 │   └── src/
-│       ├── App.tsx                   Root layout; Langfuse link in nav
+│       ├── App.tsx                   Root layout; DashboardsView; Langfuse link in nav
 │       ├── types/index.ts            ChatMessage (with logId, feedback), Org, Session
 │       ├── api/client.ts             sendChat(), sendChatStream(), submitFeedback(), listOrgs()
-│       ├── store/chatStore.ts        Zustand + localStorage persistence
-│       ├── hooks/useChat.ts          Streaming-aware send(), loading, error
+│       ├── store/
+│       │   ├── chatStore.ts          Zustand + localStorage persistence
+│       │   └── authStore.ts          Auth state (user, token, isLoading)
+│       ├── hooks/
+│       │   ├── useChat.ts            Streaming-aware send(), loading, error
+│       │   ├── useIsMobile.ts        Responsive breakpoint hook
+│       │   └── useWizardCheck.ts     First-run wizard gate logic (needsWizard, useWizardCheck)
+│       ├── pages/
+│       │   └── LoginPage.tsx         Email/password form + SSO button
 │       └── components/
+│           ├── Sidebar.tsx           Nav: Chat, Knowledge Hub, Doc Creator, Dashboards, Analytics
 │           ├── ChatWindow.tsx
 │           ├── MessageBubble.tsx     Renders bubble + timestamps (Date-safe) + feedback buttons
 │           ├── SourceCitations.tsx   Expandable source list with loop count
 │           ├── MessageInput.tsx
 │           ├── FileUpload.tsx
 │           ├── OrgSelector.tsx
-│           └── HistoryPanel.tsx
+│           ├── KnowledgeHub.tsx      Document browser with search + org-reset-during-render fix
+│           ├── DocCreator.tsx        AI-assisted document authoring
+│           ├── Analytics.tsx         Usage charts (Chart.js)
+│           ├── BIEmbed.tsx           Power BI / Looker iframe embed (VITE_POWERBI_EMBED_URL)
+│           └── FirstRunWizard.tsx    Guided LLM provider setup for superadmins
 │
 ├── admin-ui/
 │   ├── Dockerfile
