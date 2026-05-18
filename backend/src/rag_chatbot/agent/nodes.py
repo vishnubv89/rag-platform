@@ -10,6 +10,7 @@ prior conversation history so that all downstream nodes receive a self-contained
 """
 import asyncio
 import json
+import logging
 import re
 
 from langchain_core.callbacks import adispatch_custom_event
@@ -20,6 +21,8 @@ from rag_chatbot.llm.client import generate as _generate, stream_generate as _st
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.connectors.snow_token_exchange import exchange_for_snow_token, snow_kb_search
 from rag_chatbot.agent.state import AgentState
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +96,14 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"(create|file|open|raise|log)\s+(an?\s+)?(incident|ticket|case|outage|p[1-4])",
         re.IGNORECASE
     )),
+    ("servicenow_resolve_incident", re.compile(
+        r"(res[lo]{1,2}ve|close|fix|mark.{0,10}resolved|mark.{0,10}fixed)\s+(the\s+)?(incident|ticket|case|INC\d+)",
+        re.IGNORECASE
+    )),
+    ("servicenow_resolve_incident", re.compile(
+        r"(res[lo]{1,2}ve|close)\s+INC\d+",
+        re.IGNORECASE
+    )),
     ("servicenow_create_change", re.compile(
         r"(create|submit|raise|open)\s+(an?\s+)?(change\s+request|change\s+ticket|RFC|CHG)",
         re.IGNORECASE
@@ -129,6 +140,10 @@ async def intent_node(state: AgentState) -> dict:
             break
 
     skip = is_chitchat or is_overview or (action_intent is not None)
+    _log.info(
+        "intent_node | query=%r chitchat=%s overview=%s action=%s",
+        query[:80], is_chitchat, is_overview, action_intent,
+    )
     return {
         "skip_retrieval": skip,
         "kb_overview": is_overview,
@@ -514,6 +529,7 @@ async def action_node(state: AgentState, config: RunnableConfig) -> dict:
     """
     import json as _json
     from rag_chatbot.agent.actions import servicenow_actions, jira_actions, notify  # noqa: F401 trigger registration
+    _log.info("action_node | intent=%s org_id=%s", state.get("action_intent"), state.get("org_id"))
     from rag_chatbot.agent.actions.registry import dispatch as _dispatch_action
 
     action_intent = state.get("action_intent")
@@ -525,6 +541,7 @@ async def action_node(state: AgentState, config: RunnableConfig) -> dict:
     extract_system = (
         "Extract action parameters from the user query as a JSON object. "
         "For incident creation: {short_description, description, urgency (1/2/3), category}. "
+        "For incident resolve/close: {incident_number (e.g. INC0010001), resolution_notes}. "
         "For Jira: {summary, description, project_key, issue_type, priority}. "
         "For Jira triage: {issue_key, transition_name, comment}. "
         "For notifications: {channel, text} or {webhook_url, text, title}. "

@@ -33,7 +33,17 @@ export function KnowledgeHub() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [activeOrgId, setActiveOrgId] = useState(orgId);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset selection/pagination when the active org changes.
+  // "Adjust state during render" avoids a double-render caused by setState-in-effect.
+  if (activeOrgId !== orgId) {
+    setActiveOrgId(orgId);
+    setSelectedId(null);
+    setPage(1);
+    setQuery("");
+  }
 
   // On mobile, track whether we're showing list or detail
   const showDetail = selectedId !== null;
@@ -47,9 +57,6 @@ export function KnowledgeHub() {
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
-
-  // Reset selection when org changes
-  useEffect(() => { setSelectedId(null); setPage(1); setQuery(""); }, [orgId]);
 
   const listKey = debouncedQ
     ? ["docs-search", orgId, debouncedQ]

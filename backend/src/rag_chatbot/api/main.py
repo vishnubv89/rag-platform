@@ -1,9 +1,17 @@
 from contextlib import asynccontextmanager
 import json
+import logging
 from pathlib import Path
 import tempfile
 import time
 from uuid import UUID, uuid4
+
+_rag_log = logging.getLogger("rag_chatbot")
+_rag_log.setLevel(logging.INFO)
+if not _rag_log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+    _rag_log.addHandler(_h)
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
