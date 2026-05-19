@@ -1,10 +1,18 @@
 import asyncio
 from contextlib import asynccontextmanager
 import json
+import logging
 from pathlib import Path
 import tempfile
 import time
 from uuid import UUID, uuid4
+
+_rag_log = logging.getLogger("rag_chatbot")
+_rag_log.setLevel(logging.INFO)
+if not _rag_log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+    _rag_log.addHandler(_h)
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +33,7 @@ from rag_chatbot.auth.router import router as auth_router
 from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.llm.client import generate as llm_generate
-from rag_chatbot.observability import get_langfuse
+from rag_chatbot.observability import get_langfuse, init_datadog, init_otel
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -39,6 +47,8 @@ def _is_valid_uuid(value: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await run_schema()
+    init_datadog()
+    init_otel()
     start_scheduler()
     yield
     stop_scheduler()
@@ -144,6 +154,9 @@ async def chat(req: ChatRequest, request: Request):
         "llm_config": {},
         "org_id": None,
         "user_zitadel_token": extract_zitadel_token(request),
+        "action_intent": None,
+        "action_params": {},
+        "action_result": None,
     }
     # Resolve org_id: user's own org > explicit request field > default org
     pool = await get_pool()
@@ -248,6 +261,9 @@ async def chat_stream(req: ChatRequest, request: Request):
         "llm_config": llm_config,
         "org_id": org_id,
         "user_zitadel_token": extract_zitadel_token(request),
+        "action_intent": None,
+        "action_params": {},
+        "action_result": None,
     }
 
     lf = get_langfuse()
@@ -416,6 +432,8 @@ _FOLLOWUP_SYSTEM = (
 @limiter.limit("60/minute")
 async def chat_followup(req: FollowUpRequest, request: Request):
     await require_user(request)
+    import asyncio
+    import json as _json
     recent = req.messages[-6:]
     history = "\n".join(
         f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent

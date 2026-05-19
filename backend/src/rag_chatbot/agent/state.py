@@ -44,3 +44,12 @@ class AgentState(TypedDict):
     # and supplements pgvector results with a live permission-aware SN search.
     # None when the user authenticated via local password login (no Zitadel token).
     user_zitadel_token: str | None
+
+    # Detected action intent (e.g. "servicenow_create_incident") — None = no action
+    action_intent: str | None
+
+    # Extracted action parameters from the query (filled by intent_node)
+    action_params: dict
+
+    # Result of the action_node execution
+    action_result: dict | None

@@ -36,7 +36,8 @@ export function KnowledgeHub() {
   const [activeOrgId, setActiveOrgId] = useState(orgId);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset selection when org changes (adjust during render — avoids cascading setState in effect)
+  // Reset selection/pagination when the active org changes.
+  // "Adjust state during render" avoids a double-render caused by setState-in-effect.
   if (activeOrgId !== orgId) {
     setActiveOrgId(orgId);
     setSelectedId(null);

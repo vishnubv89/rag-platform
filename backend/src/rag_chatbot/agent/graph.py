@@ -10,6 +10,7 @@ from rag_chatbot.agent.nodes import (
     generator_node,
     clarify_node,
     kb_overview_node,
+    action_node,
 )
 from rag_chatbot.config import settings
 
@@ -17,6 +18,8 @@ from rag_chatbot.config import settings
 def _route_after_intent(state: AgentState) -> str:
     if state.get("kb_overview"):
         return "kb_overview"
+    if state.get("action_intent"):
+        return "action"
     return "generate" if state.get("skip_retrieval") else "retrieve"
 
 
@@ -34,6 +37,7 @@ def build_graph() -> StateGraph:
     graph.add_node("contextualize", contextualize_node)
     graph.add_node("intent", intent_node)
     graph.add_node("kb_overview", kb_overview_node)
+    graph.add_node("action", action_node)
     graph.add_node("retriever", retriever_node)
     graph.add_node("grader", grader_node)
     graph.add_node("rewriter", rewriter_node)
@@ -46,8 +50,9 @@ def build_graph() -> StateGraph:
     graph.add_conditional_edges(
         "intent",
         _route_after_intent,
-        {"kb_overview": "kb_overview", "generate": "generator", "retrieve": "retriever"},
+        {"kb_overview": "kb_overview", "action": "action", "generate": "generator", "retrieve": "retriever"},
     )
+    graph.add_edge("action", END)
     graph.add_edge("kb_overview", END)
     graph.add_edge("retriever", "grader")
     graph.add_conditional_edges(

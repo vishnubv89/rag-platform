@@ -2,6 +2,7 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     container_name: rag_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: rag
       POSTGRES_PASSWORD: rag_secret
@@ -21,6 +22,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: rag_backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
@@ -52,6 +54,7 @@ services:
         VITE_ZITADEL_AUTHORITY: ${ZITADEL_ISSUER:-http://localhost:8088}
         VITE_ZITADEL_CLIENT_ID: ${ZITADEL_FRONTEND_CLIENT_ID:-}
     container_name: rag_frontend
+    restart: unless-stopped
     ports:
       - "5173:80"
     depends_on:
@@ -63,6 +66,7 @@ services:
       context: ./admin-ui
       dockerfile: Dockerfile
     container_name: rag_admin_ui
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
