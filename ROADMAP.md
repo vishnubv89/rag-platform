@@ -15,50 +15,44 @@
 | Multi-tenant org isolation + admin panel | Phase 1–3 |
 | Google Drive, Zendesk, Jira connectors | Phase 5 |
 | Admin session auth + cookie-based org scope | Session 2 |
-| Embedding batch bug fix (SDK returns 1 vector for N texts) | Session 2 |
+| Embedding batch bug fix | Session 2 |
 | Chunk preview in document detail | Session 2 |
 | Conversational tone (no "based on provided document chunks") | Session 2 |
 | Follow-up suggestion chips after each response | Session 2 |
 | Knowledge grounding — strict grader + clarify node | Session 3 |
 | **Streaming — token-by-token SSE via astream_events** | Session 3 |
-
----
-
-## Phase 6 — Feedback Loop
-**Branch:** `feat/phase6-feedback`
-**Effort:** ~1 day
-**Why first:** Highest signal value. Without this you can't measure whether any other improvement actually worked.
-
-### What
-- `feedback` SMALLINT column in `chat_logs` (1 = up, -1 = down, NULL = none)
-- `POST /chat/{log_id}/feedback` — users submit thumbs up/down
-- `log_id` returned in SSE `done` event and stored on `ChatMessage`
-- Thumbs up/down buttons in `MessageBubble` (assistant messages only)
-- Feedback ratio shown in admin analytics dashboard
-
-### Files
-| File | Change |
-|---|---|
-| `db/migrations/002_feedback.sql` | ADD COLUMN feedback SMALLINT |
-| `api/main.py` | POST /chat/{log_id}/feedback endpoint; return log_id in stream done event |
-| `types/index.ts` | Add logId to ChatMessage; add to StreamEvent done |
-| `api/client.ts` | submitFeedback(logId, value) |
-| `hooks/useChat.ts` | Store log_id from done event on message |
-| `components/MessageBubble.tsx` | Thumbs up/down buttons, disabled after voted |
-| `admin_router.py` | Feedback ratio in analytics summary |
+| **Feedback loop** — thumbs up/down, `log_id` in SSE done, feedback ratio in admin analytics | PR #9 |
+| **Conversational context** — `contextualize_node` rewrites follow-ups as standalone queries | PR #9 |
+| **Zitadel SSO** — OIDC PKCE login, JWT validation, org/role claims, Zitadel Action enrichment | PR #9 |
+| **OBO token exchange** — Zitadel → ServiceNow user-scoped API token; live KB search in retriever | PR #9 |
+| **Multi-LLM support** — Gemini, Anthropic Claude, NVIDIA NIM / OpenAI-compatible endpoints | PR #9 |
+| **MCP server** — `hybrid_search`, `ingest_document`, `rerank_results` tools via FastMCP | PR #9 |
+| **rerank_results MCP tool** — cosine re-ranking over retrieved chunks | PR #9 |
+| **A2A endpoint** — JSON-RPC 2.0 agent-to-agent protocol; Copilot Studio compatible | PR #10 |
+| **Action routing** — `intent_node` detects action commands; `action_node` calls live APIs, bypassing RAG | PR #10 |
+| **ServiceNow actions** — create incident (P1–P4), resolve/close by number or conversation reference, create change requests | PR #10 / #11 |
+| **Jira actions** — create issue, triage/transition by key | PR #10 |
+| **Slack / Teams notification dispatch** — natural-language "post to #channel" routed to Slack SDK / Teams webhook | PR #10 |
+| **ABAC** — `document_labels` + `user_attributes` tables; enforced in RRF SQL at query time; no post-filter | PR #10 |
+| **DLP pre-ingestion** — regex rules block API keys, SSNs, credit cards; optional Nightfall API | PR #10 |
+| **Slack / Teams / Workday / Azure AD / Okta connectors** — knowledge sync + identity sync | PR #10 |
+| **Datadog APM + OpenTelemetry** — `init_datadog()`, `init_otel()` in lifespan; opt-in via env vars | PR #10 |
+| **Dashboards tab** — Power BI / Looker iframe embed (`BIEmbed`); reads `VITE_POWERBI_EMBED_URL` / `VITE_LOOKER_EMBED_URL` | PR #11 |
+| **nginx DNS re-resolution** — `resolver 127.0.0.11 valid=10s` prevents stale upstream IP after restarts | PR #11 |
+| **restart policies** — `restart: unless-stopped` on all services; eliminates cascade outage when postgres exits | PR #11 |
+| **Lint cleanup** — `useWizardCheck` extracted to hook; KnowledgeHub setState-in-effect fixed; ruff E402 fixed | PR #11 |
 
 ---
 
 ## Phase 7 — Server-side Session History
 **Branch:** `feat/phase7-sessions`
-**Effort:** ~1.5 days
+**Effort:** ~1 day
 **Why:** localStorage sessions disappear on browser clear / device switch. Data is already in `chat_logs` — just needs a read API and frontend wiring.
 
 ### What
 - `GET /chat/sessions` — list distinct sessions for current user (preview text, timestamp, message count)
 - `GET /chat/sessions/{session_id}` — return all messages in a session (reconstruct from chat_logs)
-- `HistoryPanel` reads from API instead of localStorage on mount
-- Keep localStorage as write-through cache for current session
+- `HistoryPanel` reads from API on mount; localStorage used as write-through cache for current session
 
 ### Files
 | File | Change |
@@ -66,7 +60,7 @@
 | `api/main.py` | GET /chat/sessions, GET /chat/sessions/{session_id} |
 | `api/client.ts` | listSessions(), getSession(id) |
 | `store/chatStore.ts` | loadSessionsFromApi() action |
-| `components/HistoryPanel.tsx` | Fetch sessions on mount; click restores messages |
+| `components/Sidebar.tsx` | Fetch sessions on mount; click restores messages |
 
 ---
 
@@ -100,33 +94,17 @@ Split on paragraph boundaries (\n\n)
 ## Phase 9 — Codebase Cleanup
 **Branch:** `feat/phase9-cleanup`
 **Effort:** ~half day
-**Why:** Dead code adds cognitive load and maintenance surface without delivering value.
+**Why:** Loose ends from rapid iteration.
 
 ### What
-- **Remove** `rerank_results` MCP tool — defined, never called by the agent
-- **Remove** `prompt_tokens` / `completion_tokens` columns from `chat_logs` (reserved, never populated) — OR wire them up to Gemini usage metadata
-- **Remove or graduate** `/suggest` writing-assistant endpoint — either build it out properly (own UI surface) or cut it
-
-### Decision needed before Phase 9
-- Wire token usage from Gemini response → populate columns (low effort, useful for cost analytics)
-- `/suggest` — keep if there's a plan to surface it, cut if not
+- **Wire token usage** — populate `prompt_tokens` / `completion_tokens` in `chat_logs` from Gemini/Anthropic response metadata (low effort, unlocks cost analytics in admin)
+- **`/suggest` endpoint** — build out a proper writing-assistant UI surface, or cut it
+- **Action connector config** — surface Slack/Teams/ServiceNow/Jira connector config in the admin UI (currently env-var only)
+- **ABAC admin UI** — add `document_labels` management to the admin panel (currently API-only)
 
 ---
 
-## Phase 10 — Document-level Permissions (Deferred)
-**Branch:** `feat/phase10-permissions`
-**Effort:** ~1 week
-**Why deferred:** Requires mirroring ACLs from 6 different connector systems. High complexity, only needed when a real customer blocks on it.
-
-### What
-- `doc_permissions` table: `(doc_id, org_id, allowed_users[], allowed_groups[])`
-- Connector sync populates permissions alongside content
-- `hybrid_search()` filters by caller's identity
-- Requires JWT claims to carry group memberships
-
----
-
-## Phase 11 — ragkit Extraction (Parked)
+## Phase 10 — ragkit Extraction (Parked)
 See `RAGKIT.md`. Revisit after Phase 9 completes and the platform is stable.
 
 ---
@@ -134,10 +112,8 @@ See `RAGKIT.md`. Revisit after Phase 9 completes and the platform is stable.
 ## Sequence Summary
 
 ```
-Phase 6: Feedback loop      ← start now
-Phase 7: Session history
+Phase 7: Session history      ← next
 Phase 8: Semantic chunking
-Phase 9: Cleanup
-Phase 10: Permissions       ← when a customer needs it
-Phase 11: ragkit            ← after platform stabilises
+Phase 9: Cleanup + polish
+Phase 10: ragkit              ← after platform stabilises
 ```
