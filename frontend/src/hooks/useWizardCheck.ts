@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { getConfig } from "../api/client";
 
 const WIZARD_DONE_KEY = "rag_wizard_done";
@@ -17,7 +17,7 @@ export function useWizardCheck(orgId: number | null, role: string) {
   const [show, setShow] = useState(false);
   const [checked, setChecked] = useState(false);
 
-  async function check() {
+  const check = useCallback(async () => {
     if (role !== "superadmin" || localStorage.getItem(WIZARD_DONE_KEY)) {
       setChecked(true);
       return;
@@ -30,7 +30,7 @@ export function useWizardCheck(orgId: number | null, role: string) {
     } finally {
       setChecked(true);
     }
-  }
+  }, [orgId, role]);
 
   return { show, setShow, checked, check };
 }

@@ -60,7 +60,7 @@ function Portal() {
     user?.role ?? ""
   );
 
-  useEffect(() => { checkWizard(); }, [user?.role]);
+  useEffect(() => { checkWizard(); }, [user?.role, checkWizard]);
 
   async function logout() {
     // Local session cleanup
@@ -245,7 +245,7 @@ function ZitadelCallback() {
         // If exchange fails (stale state, back-button, etc.), go back to login.
         window.location.replace("/");
       });
-  }, []);
+  }, [setAuth]);
 
   return (
     <div className="flex items-center justify-center min-h-screen" style={{ background: "#f7f7f8" }}>
@@ -273,7 +273,7 @@ function AuthBootstrap({ children }: { children: React.ReactNode }) {
         setAuth(me, access_token);
       })
       .catch(() => clearAuth());
-  }, []);
+  }, [user, setAuth, clearAuth]);
 
   if (isLoading) {
     return (

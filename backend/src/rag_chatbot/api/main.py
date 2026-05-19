@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import json
 import logging
@@ -450,7 +451,7 @@ async def chat_followup(req: FollowUpRequest, request: Request):
             None, lambda: llm_generate(prompt, _FOLLOWUP_SYSTEM, {"llm_provider": "gemini"})
         )
         start, end = raw.index("["), raw.rindex("]") + 1
-        suggestions = _json.loads(raw[start:end])[:3]
+        suggestions = json.loads(raw[start:end])[:3]
         suggestions = [s for s in suggestions if isinstance(s, str)]
     except Exception:
         suggestions = []
