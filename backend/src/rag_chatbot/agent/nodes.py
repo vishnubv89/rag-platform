@@ -17,7 +17,11 @@ from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.runnables import RunnableConfig
 
 from rag_chatbot.db.connection import get_pool
-from rag_chatbot.llm.client import generate as _generate, stream_generate as _stream_generate
+from rag_chatbot.llm.client import (
+    generate as _generate,
+    generate_with_usage as _generate_with_usage,
+    stream_generate as _stream_generate,
+)
 from rag_chatbot.retrieval.vector_store import hybrid_search
 from rag_chatbot.connectors.snow_token_exchange import exchange_for_snow_token, snow_kb_search
 from rag_chatbot.agent.state import AgentState
@@ -292,8 +296,8 @@ async def grader_node(state: AgentState) -> dict:
     prompt = f"Query: {query}\n\nDocuments:\n{doc_list}"
 
     loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(
-        None, lambda: _generate(prompt, _GRADER_SYSTEM, cfg)
+    response, pt, ct = await loop.run_in_executor(
+        None, lambda: _generate_with_usage(prompt, _GRADER_SYSTEM, cfg)
     )
 
     relevant_indices = _parse_indices(response, len(docs))
@@ -304,6 +308,8 @@ async def grader_node(state: AgentState) -> dict:
         "retrieved_docs": relevant_docs if passed else [],
         "grading_passed": passed,
         "loop_count": state["loop_count"] + 1,
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
     }
 
 
@@ -321,11 +327,11 @@ _REWRITER_SYSTEM = (
 async def rewriter_node(state: AgentState) -> dict:
     cfg = state.get("llm_config", {})
     loop = asyncio.get_running_loop()
-    new_query = await loop.run_in_executor(
+    new_query, pt, ct = await loop.run_in_executor(
         None,
-        lambda: _generate(f"Original query: {state['query']}", _REWRITER_SYSTEM, cfg),
+        lambda: _generate_with_usage(f"Original query: {state['query']}", _REWRITER_SYSTEM, cfg),
     )
-    return {"query": new_query}
+    return {"query": new_query, "prompt_tokens": pt, "completion_tokens": ct}
 
 
 # ---------------------------------------------------------------------------
@@ -334,16 +340,21 @@ async def rewriter_node(state: AgentState) -> dict:
 
 async def _stream_llm(
     prompt: str, system: str, cfg: dict, config: RunnableConfig
-) -> str:
+) -> tuple[str, int, int]:
     """Run stream_generate in a thread, dispatch each token as a custom event,
-    and return the full accumulated text."""
+    and return (full_text, prompt_tokens, completion_tokens).
+
+    usage_out is populated by stream_generate after the stream is exhausted —
+    safe to read once `await fut` returns.
+    """
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     chunks: list[str] = []
+    usage_out: dict = {}
 
     def _run() -> None:
         try:
-            for chunk in _stream_generate(prompt, system, cfg):
+            for chunk in _stream_generate(prompt, system, cfg, usage_out=usage_out):
                 chunks.append(chunk)
                 loop.call_soon_threadsafe(queue.put_nowait, chunk)
         finally:
@@ -358,7 +369,11 @@ async def _stream_llm(
         await adispatch_custom_event("stream_token", {"token": chunk}, config=config)
 
     await fut
-    return "".join(chunks)
+    return (
+        "".join(chunks),
+        usage_out.get("prompt_tokens", 0),
+        usage_out.get("completion_tokens", 0),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -409,13 +424,15 @@ async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
         "Provide a concise overview of the topics covered, grouping related documents."
     )
 
-    answer = await _stream_llm(prompt, _KB_OVERVIEW_SYSTEM, cfg, config)
+    answer, pt, ct = await _stream_llm(prompt, _KB_OVERVIEW_SYSTEM, cfg, config)
 
     return {
         "answer": answer,
         "source_chunk_ids": [],
         "sources": [],
         "messages": [{"role": "assistant", "content": answer}],
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
     }
 
 
@@ -475,7 +492,7 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
             prompt = f"Question: {query}\n\nContext:\n{context}"
         system = _GENERATOR_SYSTEM
 
-    answer = await _stream_llm(prompt, system, cfg, config)
+    answer, pt, ct = await _stream_llm(prompt, system, cfg, config)
 
     sources = [
         {
@@ -492,6 +509,8 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
         "source_chunk_ids": [d["chunk_id"] for d in docs],
         "sources": sources,
         "messages": [{"role": "assistant", "content": answer}],
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
     }
 
 
@@ -509,12 +528,14 @@ async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
         "they're looking for — perhaps they meant something different, or there's a "
         "related topic in the knowledge base that would help. Keep it brief and friendly."
     )
-    answer = await _stream_llm(f"User asked: {query}", system, cfg, config)
+    answer, pt, ct = await _stream_llm(f"User asked: {query}", system, cfg, config)
     return {
         "answer": answer,
         "source_chunk_ids": [],
         "sources": [],
         "messages": [{"role": "assistant", "content": answer}],
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
     }
 
 
@@ -569,7 +590,7 @@ async def action_node(state: AgentState, config: RunnableConfig) -> dict:
     else:
         action_summary = f"I wasn't able to complete that action: {result.message}"
 
-    answer = await _stream_llm(
+    answer, pt, ct = await _stream_llm(
         f"The following action was performed on behalf of the user:\n{action_summary}\n\n"
         "Relay this result to the user in a friendly, concise way. Include the link if present.",
         "You are a helpful assistant relaying action results to the user.",
@@ -583,4 +604,6 @@ async def action_node(state: AgentState, config: RunnableConfig) -> dict:
         "source_chunk_ids": [],
         "sources": [],
         "messages": [{"role": "assistant", "content": answer}],
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
     }
