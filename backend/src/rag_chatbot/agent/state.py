@@ -53,3 +53,8 @@ class AgentState(TypedDict):
 
     # Result of the action_node execution
     action_result: dict | None
+
+    # Cumulative LLM token usage across all nodes in this request.
+    # Annotated[int, operator.add] merges partial dicts from each node.
+    prompt_tokens: Annotated[int, operator.add]
+    completion_tokens: Annotated[int, operator.add]

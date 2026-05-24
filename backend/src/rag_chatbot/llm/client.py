@@ -43,8 +43,10 @@ def _openai_c(base_url: str, api_key: str) -> _openai.OpenAI:
     return _openai_clients[key]
 
 
-def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
-    """Generate a response using the configured LLM provider.
+def generate_with_usage(
+    prompt: str, system: str = "", config: dict | None = None
+) -> tuple[str, int, int]:
+    """Generate a response and return (text, prompt_tokens, completion_tokens).
 
     config keys (all optional; fall back to env/settings when absent):
       llm_provider      — gemini | anthropic | nvidia
@@ -62,8 +64,8 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
 
     result: str = ""
     model: str = ""
-    usage_in: int = 0
-    usage_out: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
     if provider == "anthropic":
         api_key = cfg.get("anthropic_api_key") or settings.anthropic_api_key
@@ -77,8 +79,8 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
             messages=[{"role": "user", "content": prompt}],
         )
         result = msg.content[0].text.strip()
-        usage_in = msg.usage.input_tokens
-        usage_out = msg.usage.output_tokens
+        prompt_tokens = msg.usage.input_tokens
+        completion_tokens = msg.usage.output_tokens
 
     elif provider == "nvidia":
         api_key = cfg.get("nvidia_api_key") or settings.nvidia_api_key
@@ -97,8 +99,8 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
             temperature=0.0,
         )
         result = resp.choices[0].message.content.strip()
-        usage_in = resp.usage.prompt_tokens if resp.usage else 0
-        usage_out = resp.usage.completion_tokens if resp.usage else 0
+        prompt_tokens = resp.usage.prompt_tokens if resp.usage else 0
+        completion_tokens = resp.usage.completion_tokens if resp.usage else 0
 
     else:
         # Default: Gemini
@@ -114,8 +116,8 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
         )
         result = response.text.strip()
         usage = response.usage_metadata
-        usage_in = usage.prompt_token_count if usage else 0
-        usage_out = usage.candidates_token_count if usage else 0
+        prompt_tokens = usage.prompt_token_count if usage else 0
+        completion_tokens = usage.candidates_token_count if usage else 0
 
     if lf:
         with lf.start_as_current_observation(
@@ -124,20 +126,34 @@ def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
             input={"system": system, "prompt": prompt},
             model=model,
             metadata={"provider": provider},
-            usage_details={"input": usage_in, "output": usage_out},
+            usage_details={"input": prompt_tokens, "output": completion_tokens},
         ) as obs:
             obs.update(output=result)
 
-    return result
+    return result, prompt_tokens, completion_tokens
+
+
+def generate(prompt: str, system: str = "", config: dict | None = None) -> str:
+    """Generate a response using the configured LLM provider (text only).
+
+    See generate_with_usage() to also receive token counts.
+    """
+    text, _, _ = generate_with_usage(prompt, system, config)
+    return text
 
 
 def stream_generate(
-    prompt: str, system: str = "", config: dict | None = None
+    prompt: str,
+    system: str = "",
+    config: dict | None = None,
+    usage_out: dict | None = None,
 ) -> Generator[str, None, None]:
     """Yield text chunks from the configured LLM provider (streaming).
 
-    Supports the same config keys as generate(). Falls back to the full
-    response as a single chunk if the provider does not support streaming.
+    Supports the same config keys as generate(). If usage_out is provided
+    it will be populated with {'prompt_tokens': N, 'completion_tokens': N}
+    after the stream is fully consumed — safe to read after the generator
+    is exhausted.
     """
     cfg = config or {}
     provider = cfg.get("llm_provider") or settings.llm_provider
@@ -174,6 +190,11 @@ def stream_generate(
             ) as stream:
                 for text in stream.text_stream:
                     yield text
+                # get_final_usage() is available once text_stream is exhausted
+                if usage_out is not None:
+                    fu = stream.get_final_usage()
+                    usage_out["prompt_tokens"] = fu.input_tokens
+                    usage_out["completion_tokens"] = fu.output_tokens
 
         elif provider == "nvidia":
             api_key = cfg.get("nvidia_api_key") or settings.nvidia_api_key
@@ -185,22 +206,31 @@ def stream_generate(
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
+            # stream_options enables a usage chunk in the final SSE frame
             stream = _openai_c(base_url, api_key).chat.completions.create(
                 model=model,
                 messages=messages,
                 max_tokens=1024,
                 temperature=0.0,
                 stream=True,
+                stream_options={"include_usage": True},
             )
+            last_usage = None
             for chunk in stream:
-                delta = chunk.choices[0].delta.content
+                delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
                     yield delta
+                if chunk.usage:
+                    last_usage = chunk.usage
+            if usage_out is not None and last_usage:
+                usage_out["prompt_tokens"] = last_usage.prompt_tokens or 0
+                usage_out["completion_tokens"] = last_usage.completion_tokens or 0
 
         else:
-            # Default: Gemini
+            # Default: Gemini — last chunk always carries cumulative usage_metadata
             api_key = cfg.get("gemini_api_key") or settings.gemini_api_key
             model = cfg.get("llm_model") or settings.llm_model
+            last_usage_meta = None
             for chunk in _gemini(api_key).models.generate_content_stream(
                 model=model,
                 contents=prompt,
@@ -211,6 +241,11 @@ def stream_generate(
             ):
                 if chunk.text:
                     yield chunk.text
+                if chunk.usage_metadata:
+                    last_usage_meta = chunk.usage_metadata
+            if usage_out is not None and last_usage_meta:
+                usage_out["prompt_tokens"] = last_usage_meta.prompt_token_count or 0
+                usage_out["completion_tokens"] = last_usage_meta.candidates_token_count or 0
     finally:
         if obs:
             obs.end()

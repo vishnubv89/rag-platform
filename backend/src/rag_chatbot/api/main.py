@@ -157,6 +157,8 @@ async def chat(req: ChatRequest, request: Request):
         "action_intent": None,
         "action_params": {},
         "action_result": None,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
     }
     # Resolve org_id: user's own org > explicit request field > default org
     pool = await get_pool()
@@ -203,8 +205,9 @@ async def chat(req: ChatRequest, request: Request):
                 """
                 INSERT INTO chat_logs
                     (org_id, session_id, user_message, assistant_response,
-                     source_chunk_ids, loop_count, latency_ms, user_id)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                     source_chunk_ids, loop_count, latency_ms, user_id,
+                     prompt_tokens, completion_tokens)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                 """,
                 org_id,
                 UUID(session_id),
@@ -214,6 +217,8 @@ async def chat(req: ChatRequest, request: Request):
                 final_state["loop_count"],
                 latency_ms,
                 user["id"],
+                final_state.get("prompt_tokens", 0),
+                final_state.get("completion_tokens", 0),
             )
 
     return ChatResponse(
@@ -264,6 +269,8 @@ async def chat_stream(req: ChatRequest, request: Request):
         "action_intent": None,
         "action_params": {},
         "action_result": None,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
     }
 
     lf = get_langfuse()
@@ -320,8 +327,9 @@ async def chat_stream(req: ChatRequest, request: Request):
                     """
                     INSERT INTO chat_logs
                         (org_id, session_id, user_message, assistant_response,
-                         source_chunk_ids, loop_count, latency_ms, user_id)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                         source_chunk_ids, loop_count, latency_ms, user_id,
+                         prompt_tokens, completion_tokens)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                     RETURNING id
                     """,
                     org_id,
@@ -332,6 +340,8 @@ async def chat_stream(req: ChatRequest, request: Request):
                     final_state.get("loop_count", 0),
                     latency_ms,
                     user["id"],
+                    final_state.get("prompt_tokens", 0),
+                    final_state.get("completion_tokens", 0),
                 )
 
         yield f"data: {json.dumps({'type': 'done', 'log_id': log_id, 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
