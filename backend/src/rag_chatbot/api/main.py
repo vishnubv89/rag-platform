@@ -28,7 +28,7 @@ from rag_chatbot.agent.graph import rag_graph
 from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
 from rag_chatbot.api.admin_router import router as admin_router
 from rag_chatbot.api.zitadel_enrich import router as enrich_router
-from rag_chatbot.api.deps import require_user, extract_zitadel_token
+from rag_chatbot.api.deps import require_user, require_user_or_embed, extract_zitadel_token
 from rag_chatbot.auth.router import router as auth_router
 from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
 from rag_chatbot.retrieval.vector_store import hybrid_search
@@ -134,7 +134,7 @@ class IngestResponse(BaseModel):
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat(req: ChatRequest, request: Request):
-    user = await require_user(request)
+    user = await require_user_or_embed(request)
     try:
         session_id = str(UUID(req.session_id)) if req.session_id else str(uuid4())
     except ValueError:
@@ -233,7 +233,7 @@ async def chat(req: ChatRequest, request: Request):
 @app.post("/chat/stream")
 @limiter.limit("20/minute")
 async def chat_stream(req: ChatRequest, request: Request):
-    user = await require_user(request)
+    user = await require_user_or_embed(request)
     try:
         session_id = str(UUID(req.session_id)) if req.session_id else str(uuid4())
     except ValueError:
