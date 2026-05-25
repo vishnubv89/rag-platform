@@ -11,9 +11,11 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_ADMIN_KEY=$VITE_ADMIN_KEY
 ENV VITE_ZITADEL_AUTHORITY=$VITE_ZITADEL_AUTHORITY
 ENV VITE_ZITADEL_CLIENT_ID=$VITE_ZITADEL_CLIENT_ID
-RUN npm run build
+RUN npm run build && npm run build:widget
 
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
+# Serve the chat widget at /chat-widget.js so any external site can load it
+COPY --from=builder /app/dist-widget/chat-widget.js /usr/share/nginx/html/chat-widget.js
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80

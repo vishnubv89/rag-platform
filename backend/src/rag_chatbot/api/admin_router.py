@@ -1149,3 +1149,73 @@ async def delete_sso_role(org_id: int, email: str):
         )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="SSO role override not found")
+
+
+# ---------------------------------------------------------------------------
+# Embed tokens — org-scoped API keys for the JS chat widget
+# ---------------------------------------------------------------------------
+
+class EmbedTokenCreate(BaseModel):
+    org_id: int
+    name: str  # human label, e.g. "Support portal"
+
+
+@router.post("/embed-tokens", dependencies=[Depends(verify_admin_key)])
+async def create_embed_token(body: EmbedTokenCreate):
+    """
+    Generate a new embed token for the given org.
+    The raw token is returned ONCE — only the SHA-256 hash is stored.
+    """
+    raw = "emb_" + secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """INSERT INTO embed_tokens (org_id, name, token_hash)
+               VALUES ($1, $2, $3)
+               RETURNING id, org_id, name, created_at""",
+            body.org_id, body.name, token_hash,
+        )
+    return {
+        "id": row["id"],
+        "org_id": row["org_id"],
+        "name": row["name"],
+        "token": raw,            # shown once — copy it now
+        "created_at": row["created_at"].isoformat(),
+    }
+
+
+@router.get("/embed-tokens", dependencies=[Depends(verify_admin_key)])
+async def list_embed_tokens(org_id: int = Query(...)):
+    """List all active embed tokens for an org (token hashes are never returned)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, name, created_at, revoked_at
+               FROM embed_tokens WHERE org_id = $1
+               ORDER BY created_at DESC""",
+            org_id,
+        )
+    return [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "active": r["revoked_at"] is None,
+            "created_at": r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.delete("/embed-tokens/{token_id}", status_code=204,
+               dependencies=[Depends(verify_admin_key)])
+async def revoke_embed_token(token_id: int):
+    """Revoke an embed token. The widget using it will get 401 immediately."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE embed_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
+            token_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Token not found or already revoked")

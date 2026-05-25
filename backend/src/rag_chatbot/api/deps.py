@@ -145,6 +145,44 @@ async def require_superadmin(request: Request) -> dict:
     return user
 
 
+async def require_user_or_embed(request: Request) -> dict:
+    """
+    Accept either a normal user Bearer JWT (SSO/local) or an embed token sent
+    via the X-Embed-Token header (JS widget).
+
+    Embed tokens return a synthetic user dict:
+        {"id": None, "email": "embed", "role": "viewer", "org_id": <org_id>, "is_active": True}
+
+    This is the dependency used by /chat and /chat/stream so that the widget
+    can call them without going through the full SSO login flow.
+    """
+    embed_token = request.headers.get("X-Embed-Token", "").strip()
+    if embed_token:
+        token_hash = _sha256(embed_token)
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT id, org_id FROM embed_tokens
+                   WHERE token_hash = $1 AND revoked_at IS NULL""",
+                token_hash,
+            )
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked embed token",
+            )
+        return {
+            "id": None,
+            "email": "embed",
+            "name": "Widget",
+            "role": "viewer",
+            "org_id": row["org_id"],
+            "is_active": True,
+        }
+    # Fall back to normal user auth
+    return await require_user(request)
+
+
 def assert_org_access(user: dict, org_id: int) -> None:
     """
     Raise 403 if the user does not belong to the requested org.
