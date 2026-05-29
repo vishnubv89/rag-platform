@@ -270,7 +270,14 @@ export function DocCurator() {
       const res = await curateDocument(title.trim(), ctx, orgId);
       setResult(res);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Curation failed");
+      const raw = e instanceof Error ? e.message : "Curation failed";
+      // Clean up JSON error bodies so the user sees plain text
+      let msg = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        msg = parsed?.detail ?? raw;
+      } catch { /* not JSON */ }
+      setError(msg);
     } finally {
       setLoading(false);
     }

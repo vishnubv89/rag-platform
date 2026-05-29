@@ -459,7 +459,10 @@ async def suggest(req: SuggestRequest, request: Request):
             None, lambda: llm_generate(prompt, _SUGGEST_SYSTEM, llm_config)
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        msg = str(e)
+        if "quota" in msg.lower() or "429" in msg or "resource_exhausted" in msg.lower():
+            raise HTTPException(status_code=429, detail="LLM quota exceeded. Please wait a moment.")
+        raise HTTPException(status_code=500, detail=msg[:400])
 
     sources = [
         {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
@@ -537,7 +540,14 @@ async def curate(req: CurateRequest, request: Request):
             None, lambda: llm_generate(prompt, _CURATE_SYSTEM, llm_config)
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        msg = str(e)
+        # Gemini quota errors are very long — return a clean one-liner
+        if "quota" in msg.lower() or "429" in msg or "resource_exhausted" in msg.lower():
+            raise HTTPException(
+                status_code=429,
+                detail="LLM quota exceeded. Please wait a moment and try again.",
+            )
+        raise HTTPException(status_code=500, detail=msg[:400])
 
     # Parse JSON response — strip any accidental markdown fences
     cleaned = raw.strip()
