@@ -1,6 +1,10 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useChatStore } from "../store/chatStore";
-import { curateDocument, type CurateResult } from "../api/client";
+import {
+  curateDocument, type CurateResult,
+  fetchSNCategories, type SNCategory,
+  syncToServiceNow, type CurateSyncResult,
+} from "../api/client";
 
 function wordCount(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -29,22 +33,205 @@ function ScoreBadge({ score, label }: { score: number; label: string }) {
     score >= 60 ? "rgba(217,119,6,.1)" : "rgba(220,38,38,.1)";
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span
-        className="text-2xl font-bold"
-        style={{ color }}
-      >
-        {score}
-      </span>
-      <span
-        className="text-xs font-semibold px-2 py-0.5 rounded-full"
-        style={{ background: bg, color }}
-      >
+      <span className="text-2xl font-bold" style={{ color }}>{score}</span>
+      <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: bg, color }}>
         {label}
       </span>
     </div>
   );
 }
 
+// ── ServiceNow sync panel ──────────────────────────────────────────────────
+function SNSyncPanel({
+  title,
+  content,
+  orgId,
+  externalId,
+}: {
+  title: string;
+  content: string;
+  orgId: number | null;
+  externalId?: string;
+}) {
+  const [open, setOpen]               = useState(false);
+  const [categories, setCategories]   = useState<SNCategory[]>([]);
+  const [catLoading, setCatLoading]   = useState(false);
+  const [catError, setCatError]       = useState<string | null>(null);
+  const [selectedCat, setSelectedCat] = useState("");
+  const [publish, setPublish]         = useState(false);
+  const [syncing, setSyncing]         = useState(false);
+  const [syncResult, setSyncResult]   = useState<CurateSyncResult | null>(null);
+  const [syncError, setSyncError]     = useState<string | null>(null);
+
+  // Load categories when the panel opens
+  useEffect(() => {
+    if (!open || categories.length > 0) return;
+    setCatLoading(true);
+    setCatError(null);
+    fetchSNCategories(orgId)
+      .then((cats) => {
+        setCategories(cats);
+        if (cats.length > 0) setSelectedCat(cats[0].sys_id);
+      })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : "Failed to load categories";
+        setCatError(msg);
+      })
+      .finally(() => setCatLoading(false));
+  }, [open, orgId, categories.length]);
+
+  const handleSync = async () => {
+    if (!content.trim()) return;
+    setSyncing(true);
+    setSyncError(null);
+    setSyncResult(null);
+    try {
+      const res = await syncToServiceNow(title, content, selectedCat, publish, orgId, externalId);
+      setSyncResult(res);
+    } catch (e: unknown) {
+      setSyncError(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-gray-100">
+      {/* Accordion header */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          {/* ServiceNow logo-ish icon */}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          Sync to ServiceNow
+        </span>
+        <svg
+          width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s" }}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 flex flex-col gap-3">
+          {syncResult ? (
+            /* Success state */
+            <div className="flex flex-col gap-2">
+              <div
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium"
+                style={{ background: "rgba(22,163,74,.1)", color: "#16a34a" }}
+              >
+                <span>✓</span>
+                <span>Article {syncResult.action} in ServiceNow</span>
+              </div>
+              <a
+                href={syncResult.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-indigo-600 underline underline-offset-2 break-all"
+              >
+                {syncResult.url}
+              </a>
+              <button
+                onClick={() => { setSyncResult(null); setSyncError(null); }}
+                className="text-xs text-gray-400 hover:text-gray-600 self-start mt-1"
+              >
+                Sync again
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Category */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-gray-500">Category</label>
+                {catLoading ? (
+                  <div className="text-xs text-gray-400 py-1">Loading categories…</div>
+                ) : catError ? (
+                  <div className="text-xs text-red-500">{catError}</div>
+                ) : (
+                  <select
+                    value={selectedCat}
+                    onChange={(e) => setSelectedCat(e.target.value)}
+                    className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg outline-none focus:border-indigo-400 bg-white text-gray-800"
+                  >
+                    {categories.map((c) => (
+                      <option key={c.sys_id} value={c.sys_id}>{c.label}</option>
+                    ))}
+                    {categories.length === 0 && (
+                      <option value="">(no categories found)</option>
+                    )}
+                  </select>
+                )}
+              </div>
+
+              {/* Publish toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-500">Status</p>
+                  <p className="text-xs text-gray-400">{publish ? "Will be published immediately" : "Saved as draft"}</p>
+                </div>
+                <button
+                  onClick={() => setPublish((v) => !v)}
+                  className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                  style={{ background: publish ? "#6366f1" : "#d1d5db" }}
+                >
+                  <span
+                    className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
+                    style={{ transform: publish ? "translateX(18px)" : "translateX(2px)" }}
+                  />
+                </button>
+              </div>
+
+              {/* Error */}
+              {syncError && (
+                <p className="text-xs text-red-500">{syncError}</p>
+              )}
+
+              {/* Sync button */}
+              <button
+                onClick={handleSync}
+                disabled={syncing || catLoading || !content.trim()}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: "#6366f1", color: "white" }}
+                onMouseEnter={(e) => { if (!syncing) (e.currentTarget as HTMLButtonElement).style.background = "#4f46e5"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#6366f1"; }}
+              >
+                {syncing ? (
+                  <>
+                    <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    Syncing…
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="17 1 21 5 17 9" />
+                      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                      <polyline points="7 23 3 19 7 15" />
+                      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                    </svg>
+                    {externalId ? "Update in ServiceNow" : "Create in ServiceNow"}
+                  </>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
 export function DocCurator() {
   const { activeOrg } = useChatStore();
   const orgId = activeOrg?.id ?? null;
@@ -57,6 +244,9 @@ export function DocCurator() {
   const [copied, setCopied]     = useState(false);
   const [applied, setApplied]   = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Track the SN external_id of the doc in the editor (set after sync or if doc came from SN)
+  const [externalId, setExternalId] = useState<string | undefined>(undefined);
 
   const autoResize = useCallback((el: HTMLTextAreaElement) => {
     el.style.height = "auto";
@@ -100,18 +290,20 @@ export function DocCurator() {
   };
 
   const handleCopy = async () => {
-    const src = applied || !result
-      ? (title ? `# ${title}\n\n${content}` : content)
-      : (result.improved_title
-          ? `# ${result.improved_title}\n\n${result.improved_content}`
-          : result.improved_content);
+    const src =
+      applied || !result
+        ? (title ? `# ${title}\n\n${content}` : content)
+        : (result.improved_title
+            ? `# ${result.improved_title}\n\n${result.improved_content}`
+            : result.improved_content);
     await navigator.clipboard.writeText(src);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleClear = () => {
-    setTitle(""); setContent(""); setResult(null); setError(null); setApplied(false);
+    setTitle(""); setContent(""); setResult(null); setError(null);
+    setApplied(false); setExternalId(undefined);
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
@@ -122,6 +314,10 @@ export function DocCurator() {
 
   const wc = wordCount(content);
   const hasContent = !!content.trim();
+
+  // After applying, the sync panel should use the improved content
+  const syncTitle   = applied && result ? result.improved_title || title : title;
+  const syncContent = applied && result ? result.improved_content : content;
 
   return (
     <div className="flex h-full" style={{ background: "#fafafa" }}>
@@ -180,7 +376,6 @@ export function DocCurator() {
           className="flex-1 overflow-y-auto px-8 py-8"
           style={{ maxWidth: 760, margin: "0 auto", width: "100%" }}
         >
-          {/* Hint banner when empty */}
           {!hasContent && !loading && (
             <div
               className="mb-6 px-4 py-3 rounded-xl text-sm text-indigo-700 flex items-start gap-2"
@@ -190,7 +385,7 @@ export function DocCurator() {
               <span>
                 Paste or write your knowledge article, SOP, FAQ, or troubleshooting guide.
                 Click <strong>✨ Curate Document</strong> to improve it against{" "}
-                <strong>KCS v6 &amp; ITIL 4</strong> quality standards.
+                <strong>KCS v6 &amp; ITIL 4</strong> quality standards, then sync back to ServiceNow.
               </span>
             </div>
           )}
@@ -215,29 +410,43 @@ export function DocCurator() {
         </div>
       </div>
 
-      {/* ── Quality report panel ── */}
-      {(result !== null || error) && (
+      {/* ── Quality report + sync panel ── */}
+      {(result !== null || error || hasContent) && (
         <div
           className="flex flex-col border-l border-gray-100"
           style={{ width: 380, minWidth: 340, background: "white" }}
         >
           {/* Panel header */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
-            <span className="text-sm font-semibold text-gray-800">✨ Quality Report</span>
-            <button
-              onClick={() => { setResult(null); setError(null); setApplied(false); }}
-              className="text-gray-400 hover:text-gray-600 text-lg leading-none"
-            >
-              ×
-            </button>
+            <span className="text-sm font-semibold text-gray-800">
+              {result ? "✨ Quality Report" : "✨ Doc Curator"}
+            </span>
+            {result && (
+              <button
+                onClick={() => { setResult(null); setError(null); setApplied(false); }}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+              >
+                ×
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {error ? (
+            {/* Waiting state — no result yet */}
+            {!result && !error && hasContent && (
+              <div className="px-5 py-6 text-center">
+                <p className="text-sm text-gray-400 mb-1">Ready to curate</p>
+                <p className="text-xs text-gray-300">Click ✨ Curate Document to get a quality report and sync options</p>
+              </div>
+            )}
+
+            {error && (
               <div className="px-5 py-4">
                 <p className="text-sm text-red-500">{error}</p>
               </div>
-            ) : result ? (
+            )}
+
+            {result && (
               <>
                 {/* Score row */}
                 <div className="flex items-center justify-around px-5 py-4 border-b border-gray-50">
@@ -253,7 +462,7 @@ export function DocCurator() {
                   <ScoreBadge score={result.score_after} label="After" />
                 </div>
 
-                {/* Improved title preview */}
+                {/* Improved title */}
                 {result.improved_title && result.improved_title !== title && (
                   <div className="px-5 py-3 border-b border-gray-50">
                     <p className="text-xs text-gray-400 mb-1">Improved title</p>
@@ -268,9 +477,7 @@ export function DocCurator() {
                     <div className="flex flex-col gap-2.5">
                       {result.changes.map((c, i) => (
                         <div key={i} className="flex gap-2 text-sm">
-                          <span className="shrink-0 text-base leading-snug">
-                            {DIMENSION_ICONS[c.dimension] ?? "•"}
-                          </span>
+                          <span className="shrink-0 text-base leading-snug">{DIMENSION_ICONS[c.dimension] ?? "•"}</span>
                           <div>
                             <span className="font-semibold text-gray-700">{c.dimension}</span>
                             <span className="text-gray-500"> — {c.description}</span>
@@ -311,44 +518,49 @@ export function DocCurator() {
                 )}
 
                 {/* Improved content preview */}
-                <div className="px-5 py-3">
+                <div className="px-5 py-3 border-b border-gray-50">
                   <p className="text-xs text-gray-400 mb-2">Improved document preview</p>
                   <div
                     className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap rounded-lg p-3"
-                    style={{ background: "#f8faff", maxHeight: 260, overflowY: "auto" }}
+                    style={{ background: "#f8faff", maxHeight: 220, overflowY: "auto" }}
                   >
                     {result.improved_content}
                   </div>
                 </div>
+
+                {/* Apply button */}
+                <div className="px-5 py-4 border-b border-gray-100 flex flex-col gap-2">
+                  {applied ? (
+                    <div
+                      className="w-full py-2 rounded-lg text-sm font-medium text-center"
+                      style={{ background: "rgba(22,163,74,.1)", color: "#16a34a" }}
+                    >
+                      ✓ Improvements applied to editor
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleApply}
+                      className="w-full py-2 rounded-lg text-sm font-medium transition-colors"
+                      style={{ background: "#6366f1", color: "white" }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#4f46e5"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#6366f1"; }}
+                    >
+                      Apply improvements
+                    </button>
+                  )}
+                </div>
               </>
-            ) : null}
+            )}
           </div>
 
-          {/* Apply button */}
-          {!error && result && (
-            <div className="px-5 py-4 border-t border-gray-100 flex flex-col gap-2">
-              {applied ? (
-                <div
-                  className="w-full py-2 rounded-lg text-sm font-medium text-center"
-                  style={{ background: "rgba(22,163,74,.1)", color: "#16a34a" }}
-                >
-                  ✓ Improvements applied
-                </div>
-              ) : (
-                <button
-                  onClick={handleApply}
-                  className="w-full py-2 rounded-lg text-sm font-medium transition-colors"
-                  style={{ background: "#6366f1", color: "white" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#4f46e5"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#6366f1"; }}
-                >
-                  Apply improvements
-                </button>
-              )}
-              <p className="text-xs text-center text-gray-400">
-                Replaces the editor content with the curated version
-              </p>
-            </div>
+          {/* ── ServiceNow sync accordion — always visible when content exists ── */}
+          {hasContent && (
+            <SNSyncPanel
+              title={syncTitle}
+              content={syncContent}
+              orgId={orgId}
+              externalId={externalId}
+            />
           )}
         </div>
       )}

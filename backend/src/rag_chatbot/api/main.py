@@ -135,6 +135,26 @@ class CurateResponse(BaseModel):
     sources: list[dict]
 
 
+class SNCategory(BaseModel):
+    sys_id: str
+    label: str
+
+
+class CurateSyncRequest(BaseModel):
+    title: str
+    content: str
+    category_sys_id: str
+    publish: bool = False
+    external_id: str | None = None   # existing SN sys_id → PATCH; None → POST
+    org_id: int | None = None
+
+
+class CurateSyncResponse(BaseModel):
+    sys_id: str
+    url: str
+    action: str   # "created" | "updated"
+
+
 class IngestTextRequest(BaseModel):
     title: str
     text: str
@@ -550,6 +570,169 @@ async def curate(req: CurateRequest, request: Request):
         score_after=max(1, min(100, int(data.get("score_after", 80)))),
         sources=unique_sources,
     )
+
+
+# ---------------------------------------------------------------------------
+# ServiceNow write-back helpers
+# ---------------------------------------------------------------------------
+
+def _text_to_sn_html(text: str) -> str:
+    """Convert plain-text document to minimal ServiceNow-compatible HTML."""
+    import html as _html
+    lines = text.splitlines()
+    parts: list[str] = []
+    buf: list[str] = []
+
+    def flush_buf() -> None:
+        if buf:
+            para = " ".join(buf).strip()
+            if para:
+                parts.append(f"<p>{_html.escape(para)}</p>")
+            buf.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            flush_buf()
+            continue
+        # Markdown-style headings → <h3>
+        if stripped.startswith("### "):
+            flush_buf()
+            parts.append(f"<h3>{_html.escape(stripped[4:])}</h3>")
+        elif stripped.startswith("## "):
+            flush_buf()
+            parts.append(f"<h2>{_html.escape(stripped[3:])}</h2>")
+        elif stripped.startswith("# "):
+            flush_buf()
+            parts.append(f"<h1>{_html.escape(stripped[2:])}</h1>")
+        # Numbered / bullet list items
+        elif stripped.startswith(("- ", "* ", "• ")):
+            flush_buf()
+            parts.append(f"<li>{_html.escape(stripped[2:])}</li>")
+        elif stripped[0].isdigit() and ". " in stripped[:5]:
+            flush_buf()
+            item = stripped.split(". ", 1)[-1]
+            parts.append(f"<li>{_html.escape(item)}</li>")
+        else:
+            buf.append(stripped)
+
+    flush_buf()
+    return "\n".join(parts)
+
+
+async def _get_sn_connector(org_id: int | None) -> dict:
+    """Return the ServiceNow connector config dict for the given org."""
+    import json as _json
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT config FROM connectors
+            WHERE connector_type = 'servicenow'
+              AND is_active = true
+              AND ($1::bigint IS NULL OR org_id = $1)
+            ORDER BY id
+            LIMIT 1
+            """,
+            org_id,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="No active ServiceNow connector found for this org")
+    cfg = row["config"]
+    return _json.loads(cfg) if isinstance(cfg, str) else dict(cfg)
+
+
+@app.get("/curate/categories", response_model=list[SNCategory])
+@limiter.limit("30/minute")
+async def curate_categories(request: Request, org_id: int | None = None):
+    """Fetch KB categories from the org's ServiceNow connector."""
+    import httpx
+    await require_user(request)
+    cfg = await _get_sn_connector(org_id)
+
+    kb_sys_id = cfg.get("kb_sys_id", "")
+    params: dict = {
+        "sysparm_fields": "sys_id,label",
+        "sysparm_limit": 200,
+    }
+    if kb_sys_id:
+        params["sysparm_query"] = f"kb_knowledge_base={kb_sys_id}"
+
+    try:
+        async with httpx.AsyncClient(
+            base_url=cfg["instance_url"].rstrip("/"),
+            auth=(cfg["username"], cfg["password"]),
+            timeout=15,
+        ) as client:
+            r = await client.get("/api/now/table/kb_category", params=params)
+            r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"ServiceNow error: {e.response.status_code}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"ServiceNow unreachable: {e}")
+
+    result = r.json().get("result", [])
+    items = [result] if isinstance(result, dict) else result
+    categories = [
+        SNCategory(sys_id=item["sys_id"], label=item.get("label", item["sys_id"]))
+        for item in items
+        if item.get("sys_id")
+    ]
+    # Always include a sensible fallback so the dropdown is never empty
+    if not categories:
+        categories = [SNCategory(sys_id="", label="(no category)")]
+    return sorted(categories, key=lambda c: c.label)
+
+
+@app.post("/curate/sync", response_model=CurateSyncResponse)
+@limiter.limit("20/minute")
+async def curate_sync(req: CurateSyncRequest, request: Request):
+    """Push a curated document back to ServiceNow as a KB article."""
+    import httpx
+    await require_user(request)
+    cfg = await _get_sn_connector(req.org_id)
+
+    instance_url = cfg["instance_url"].rstrip("/")
+    html_body = _text_to_sn_html(req.content)
+
+    payload: dict = {
+        "short_description": req.title,
+        "text": html_body,
+        "workflow_state": "published" if req.publish else "draft",
+    }
+    if cfg.get("kb_sys_id"):
+        payload["kb_knowledge_base"] = cfg["kb_sys_id"]
+    if req.category_sys_id:
+        payload["kb_category"] = req.category_sys_id
+
+    try:
+        async with httpx.AsyncClient(
+            base_url=instance_url,
+            auth=(cfg["username"], cfg["password"]),
+            timeout=30,
+        ) as client:
+            if req.external_id:
+                # Update existing article
+                r = await client.patch(
+                    f"/api/now/table/kb_knowledge/{req.external_id}",
+                    json=payload,
+                )
+            else:
+                # Create new article
+                r = await client.post("/api/now/table/kb_knowledge", json=payload)
+            r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"ServiceNow error {e.response.status_code}: {e.response.text[:300]}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"ServiceNow unreachable: {e}")
+
+    result = r.json().get("result", {})
+    item = result[0] if isinstance(result, list) else result
+    sys_id = item.get("sys_id", req.external_id or "")
+    url = f"{instance_url}/kb_view.do?sys_kb_id={sys_id}"
+    action = "updated" if req.external_id else "created"
+
+    return CurateSyncResponse(sys_id=sys_id, url=url, action=action)
 
 
 _FOLLOWUP_SYSTEM = (
