@@ -156,6 +156,31 @@ export async function getSuggestion(
   });
 }
 
+export interface CurateChange {
+  dimension: string;
+  description: string;
+}
+
+export interface CurateResult {
+  improved_title: string;
+  improved_content: string;
+  changes: CurateChange[];
+  score_before: number;
+  score_after: number;
+  sources: { doc_id: number; doc_title: string; doc_source: string }[];
+}
+
+export async function curateDocument(
+  title: string,
+  content: string,
+  orgId: number | null,
+): Promise<CurateResult> {
+  return request("/curate", {
+    method: "POST",
+    body: JSON.stringify({ title, content, org_id: orgId }),
+  });
+}
+
 export async function listSessions(): Promise<{
   sessions: { session_id: string; preview: string; message_count: number; last_active: string }[];
 }> {

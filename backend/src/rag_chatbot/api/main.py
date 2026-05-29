@@ -115,6 +115,26 @@ class FollowUpResponse(BaseModel):
     suggestions: list[str]
 
 
+class CurateRequest(BaseModel):
+    title: str = ""
+    content: str
+    org_id: int | None = None
+
+
+class CurateChange(BaseModel):
+    dimension: str
+    description: str
+
+
+class CurateResponse(BaseModel):
+    improved_title: str
+    improved_content: str
+    changes: list[CurateChange]
+    score_before: int
+    score_after: int
+    sources: list[dict]
+
+
 class IngestTextRequest(BaseModel):
     title: str
     text: str
@@ -429,6 +449,107 @@ async def suggest(req: SuggestRequest, request: Request):
     unique_sources = [s for s in sources if not (s["doc_id"] in seen or seen.add(s["doc_id"]))]  # type: ignore[func-returns-value]
 
     return SuggestResponse(suggestion=suggestion, sources=unique_sources)
+
+
+_CURATE_SYSTEM = (
+    "You are an expert knowledge-article quality curator applying KCS (Knowledge-Centered Service) "
+    "v6 and ITIL 4 best-practice standards.\n\n"
+    "Evaluate the provided document against these seven quality dimensions and return improvements:\n"
+    "1. Structure — Has a clear title, purpose/scope, step-by-step procedure, expected outcome, and references section.\n"
+    "2. Clarity — Plain language, active voice, no undefined acronyms or jargon.\n"
+    "3. Completeness — All required sections present, no information gaps or dangling references.\n"
+    "4. Accuracy — Consistent terminology, no contradictions, technically sound.\n"
+    "5. Actionability — Numbered steps where applicable, specific instructions, measurable outcomes.\n"
+    "6. Findability — Clear, search-friendly title with relevant keywords.\n"
+    "7. Readability — Appropriate length, proper headings, scannable bullet points.\n\n"
+    "You MUST respond with a single valid JSON object — no markdown fences, no prose outside the JSON — "
+    "with these exact keys:\n"
+    '  "improved_title": string — improved document title,\n'
+    '  "improved_content": string — the fully improved document body,\n'
+    '  "changes": array of {"dimension": string, "description": string} objects, '
+    "one entry per quality dimension that was actually changed,\n"
+    '  "score_before": integer 1-100 — estimated quality score of the original,\n'
+    '  "score_after": integer 1-100 — estimated quality score of the improved version.\n\n'
+    "If the document already meets a dimension fully, omit it from changes. "
+    "If reference material is provided, incorporate relevant facts but do not invent information."
+)
+
+
+@app.post("/curate", response_model=CurateResponse)
+@limiter.limit("20/minute")
+async def curate(req: CurateRequest, request: Request):
+    """Improve a document against KCS/ITIL industry quality standards."""
+    await require_user(request)
+    import asyncio, json as _json
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        org_id = req.org_id or await conn.fetchval(
+            "SELECT id FROM organizations WHERE slug='default'"
+        )
+        rows = await conn.fetch(
+            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
+        ) if org_id else []
+    llm_config = {r["key"]: r["value"] for r in rows}
+
+    # Hybrid-search using title + first 600 chars of content as the query
+    search_query = f"{req.title} {req.content[:600]}".strip()
+    try:
+        docs = await hybrid_search(search_query, top_k=5, org_id=org_id)
+    except Exception:
+        docs = []
+
+    doc_header = f"Title: {req.title}\n\n" if req.title else ""
+    if docs:
+        ref_block = "\n\n".join(
+            f"[{d.get('doc_title', 'Reference')}]\n{d['text']}" for d in docs
+        )
+        prompt = (
+            f"Document to curate:\n{doc_header}{req.content}\n\n"
+            f"Reference material from knowledge base:\n{ref_block}"
+        )
+    else:
+        prompt = f"Document to curate:\n{doc_header}{req.content}"
+
+    loop = asyncio.get_running_loop()
+    try:
+        raw = await loop.run_in_executor(
+            None, lambda: llm_generate(prompt, _CURATE_SYSTEM, llm_config)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Parse JSON response — strip any accidental markdown fences
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1]
+        cleaned = cleaned.rsplit("```", 1)[0].strip()
+
+    try:
+        data = _json.loads(cleaned)
+    except _json.JSONDecodeError:
+        # Fallback: return raw as improved content with no changes parsed
+        raise HTTPException(status_code=500, detail=f"LLM returned non-JSON: {cleaned[:200]}")
+
+    changes = [
+        CurateChange(dimension=c.get("dimension", ""), description=c.get("description", ""))
+        for c in data.get("changes", [])
+    ]
+    sources = [
+        {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
+        for d in docs
+    ]
+    seen: set[int] = set()
+    unique_sources = [s for s in sources if not (s["doc_id"] in seen or seen.add(s["doc_id"]))]  # type: ignore[func-returns-value]
+
+    return CurateResponse(
+        improved_title=data.get("improved_title", req.title),
+        improved_content=data.get("improved_content", req.content),
+        changes=changes,
+        score_before=max(1, min(100, int(data.get("score_before", 50)))),
+        score_after=max(1, min(100, int(data.get("score_after", 80)))),
+        sources=unique_sources,
+    )
 
 
 _FOLLOWUP_SYSTEM = (

@@ -6,7 +6,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { KnowledgeHub } from "./components/KnowledgeHub";
-import { DocCreator } from "./components/DocCreator";
+import { DocCurator } from "./components/DocCurator";
 import { Analytics } from "./components/Analytics";
 import { BIEmbed } from "./components/BIEmbed";
 import { OrgSelector } from "./components/OrgSelector";
@@ -22,7 +22,7 @@ type App = "chat" | "knowledge" | "creator" | "dashboards" | "analytics";
 const APP_LABELS: Record<App, string> = {
   chat:       "Chat",
   knowledge:  "Knowledge Hub",
-  creator:    "Doc Creator",
+  creator:    "Doc Curator",
   dashboards: "Dashboards",
   analytics:  "Analytics",
 };
@@ -37,7 +37,7 @@ const BOTTOM_NAV: { id: App; label: string; icon: React.ReactNode }[] = [
     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>,
   },
   {
-    id: "creator", label: "Creator",
+    id: "creator", label: "Curator",
     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>,
   },
   {
@@ -142,7 +142,7 @@ function Portal() {
         <main className="flex-1 overflow-hidden" style={{ paddingBottom: isMobile ? 56 : 0 }}>
           {activeApp === "chat"       && <ChatWindow />}
           {activeApp === "knowledge"  && <KnowledgeHub />}
-          {activeApp === "creator"    && <DocCreator />}
+          {activeApp === "creator"    && <DocCurator />}
           {activeApp === "dashboards" && <DashboardsView />}
           {activeApp === "analytics"  && <Analytics />}
         </main>
