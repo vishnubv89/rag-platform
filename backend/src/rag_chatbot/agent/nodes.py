@@ -7,6 +7,13 @@ Flow: contextualize → intent → retriever → grader → generator
 
 contextualize_node rewrites follow-up questions into standalone questions using
 prior conversation history so that all downstream nodes receive a self-contained query.
+
+Latency budget (~6 s target):
+  embed_text         ~0.5-1.5 s  (LRU-cached; runs parallel with contextualize)
+  hybrid_search SQL  ~0.1 s
+  grader fast-path   ~0 s        (score threshold — no LLM)
+  grader LLM fallback~2-3 s      (only for low-confidence retrievals)
+  generator stream   ~1-3 s      (first token)
 """
 import asyncio
 import json
@@ -28,6 +35,19 @@ from rag_chatbot.agent.state import AgentState
 
 _log = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Referential-language heuristic for contextualize fast-path
+# ---------------------------------------------------------------------------
+# If the user's message contains none of these markers, it's self-contained
+# and we can skip the LLM contextualization call entirely.
+_REFERENCE_RE = re.compile(
+    r"\b(this|that|those|these|it|its|they|them|their|he|she|his|her|"
+    r"what about|tell me more|explain that|explain it|elaborate|continue|"
+    r"the same|previous|last|above|mentioned|said|you mentioned|"
+    r"the one|that one|first one|second one|step \d)\b",
+    re.IGNORECASE,
+)
+
 
 # ---------------------------------------------------------------------------
 # Contextualize — rewrite follow-up questions as standalone questions
@@ -46,14 +66,23 @@ async def contextualize_node(state: AgentState) -> dict:
     """Rewrite follow-up questions to be standalone using conversation history.
 
     First turn: no-op — just sets query from the raw message.
-    Subsequent turns: uses an LLM to resolve references like 'tell me more about that'
-    or 'what does step 2 mean?' into a fully self-contained question.
+    Subsequent turns: fast-path skip if the query has no referential language;
+    otherwise calls LLM to resolve references like 'tell me more about that'.
+
+    Latency optimisation: most user questions are already standalone (they repeat
+    the subject explicitly). We only pay the LLM round-trip when the regex detects
+    pronouns or referential phrases that require prior-context resolution.
     """
     messages = state["messages"]
     current_query = messages[-1]["content"].strip()
 
     # First message — nothing to contextualize against
     if len(messages) <= 1:
+        return {"query": current_query}
+
+    # Fast-path: no referential language → query is already standalone
+    if not _REFERENCE_RE.search(current_query):
+        _log.debug("contextualize_node | fast-path (no references detected)")
         return {"query": current_query}
 
     # Build history from the last 6 prior messages (up to 3 exchanges)
@@ -74,6 +103,7 @@ async def contextualize_node(state: AgentState) -> dict:
     standalone = await loop.run_in_executor(
         None, lambda: _generate(prompt, _CONTEXTUALIZE_SYSTEM, cfg)
     )
+    _log.debug("contextualize_node | rewritten: %r → %r", current_query[:60], standalone[:60])
     return {"query": standalone.strip()}
 
 
@@ -181,7 +211,8 @@ async def retriever_node(state: AgentState) -> dict:
     # Always run the pgvector search
     docs = await hybrid_search(query, org_id=org_id)
 
-    # OBO supplement — only when user has a Zitadel token
+    # OBO supplement — only when user has a Zitadel token (run in parallel with above
+    # if we wanted to; kept sequential here since OBO is the rare path)
     if zitadel_token and org_id:
         obo_docs = await _obo_search(query, zitadel_token, org_id)
         if obo_docs:
@@ -250,8 +281,14 @@ def _merge_docs(pgvector_docs: list[dict], obo_docs: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Grader — single batch LLM call instead of N parallel calls
+# Grader — RRF score fast-path + LLM fallback
 # ---------------------------------------------------------------------------
+# With k=60 in RRF, a chunk that ranks well in BOTH BM25 and semantic gets
+# score ≈ 1/61 + 1/61 ≈ 0.033. A chunk in only one list at rank-1 gets ≈ 0.016.
+# Anything scoring above _GRADER_SCORE_THRESHOLD is confidently relevant —
+# skip the LLM call entirely. Only genuinely ambiguous retrievals (all scores
+# below threshold) fall back to the LLM grader.
+_GRADER_SCORE_THRESHOLD = 0.016  # RRF score above which we trust the retrieval
 
 _GRADER_SYSTEM = (
     "You are a relevance grader. Given a query and numbered document chunks, "
@@ -285,6 +322,15 @@ def _parse_indices(text: str, n_docs: int) -> list[int]:
 
 
 async def grader_node(state: AgentState) -> dict:
+    """Grade retrieved documents for relevance.
+
+    Fast-path (no LLM): if any doc's RRF score exceeds _GRADER_SCORE_THRESHOLD,
+    the retrieval is confident — keep only those high-scoring docs and skip the
+    LLM grading call entirely (~3-8 s saved per query).
+
+    LLM fallback: only for low-confidence retrievals where all scores are below
+    threshold (e.g. the query matched mostly by BM25 keyword noise).
+    """
     query = state["query"]
     docs = state["retrieved_docs"]
     cfg = state.get("llm_config", {})
@@ -292,7 +338,27 @@ async def grader_node(state: AgentState) -> dict:
     if not docs:
         return {"grading_passed": False, "loop_count": state["loop_count"] + 1}
 
-    doc_list = "\n".join(f"[{i}] {d['text'][:600]}" for i, d in enumerate(docs))
+    # ── Fast-path: trust RRF scores ──────────────────────────────────────────
+    high_conf = [d for d in docs if d.get("score", 0) >= _GRADER_SCORE_THRESHOLD]
+    if high_conf:
+        _log.debug(
+            "grader_node | fast-path: %d/%d docs above threshold (top score=%.4f)",
+            len(high_conf), len(docs), high_conf[0].get("score", 0),
+        )
+        return {
+            "retrieved_docs": high_conf,
+            "grading_passed": True,
+            "loop_count": state["loop_count"] + 1,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
+
+    # ── LLM fallback: ambiguous retrieval ────────────────────────────────────
+    _log.debug(
+        "grader_node | LLM fallback: top score=%.4f below threshold",
+        docs[0].get("score", 0) if docs else 0,
+    )
+    doc_list = "\n".join(f"[{i}] {d['text'][:400]}" for i, d in enumerate(docs))
     prompt = f"Query: {query}\n\nDocuments:\n{doc_list}"
 
     loop = asyncio.get_running_loop()

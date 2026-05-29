@@ -27,8 +27,11 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
 
     # Retrieval
-    retrieval_top_k: int = 8
-    grader_max_loops: int = 3
+    # top_k=5: fewer docs → smaller grader prompt on LLM fallback → faster
+    retrieval_top_k: int = 5
+    # max_loops=1: one rewrite attempt before clarifying; prevents 3× loop amplification
+    # (old default of 3 could trigger 3 retrieve + 3 grade + 2 rewrite = ~30 s worst-case)
+    grader_max_loops: int = 1
 
     # Chunking
     chunk_size: int = 512
