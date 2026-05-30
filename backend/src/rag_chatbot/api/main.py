@@ -555,11 +555,18 @@ async def curate(req: CurateRequest, request: Request):
         cleaned = cleaned.split("\n", 1)[-1]
         cleaned = cleaned.rsplit("```", 1)[0].strip()
 
+    # LLMs often embed literal newlines inside JSON string values instead of
+    # escaping them as \n.  strict=False allows control characters in strings.
     try:
         data = _json.loads(cleaned)
     except _json.JSONDecodeError:
-        # Fallback: return raw as improved content with no changes parsed
-        raise HTTPException(status_code=500, detail=f"LLM returned non-JSON: {cleaned[:200]}")
+        try:
+            data = _json.loads(cleaned, strict=False)
+        except _json.JSONDecodeError:
+            raise HTTPException(
+                status_code=500,
+                detail=f"LLM returned non-JSON: {cleaned[:200]}",
+            )
 
     changes = [
         CurateChange(dimension=c.get("dimension", ""), description=c.get("description", ""))
