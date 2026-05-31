@@ -1,3 +1,11 @@
+"""
+Gemini embedding wrapper.
+
+Provides async and sync interfaces for generating text embeddings using
+Google's text-embedding-004 model via the google-genai SDK. Caches the
+genai.Client instance and applies a retry-with-backoff on quota errors.
+"""
+
 import asyncio
 import functools
 import time

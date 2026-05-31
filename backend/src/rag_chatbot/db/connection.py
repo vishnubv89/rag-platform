@@ -1,3 +1,12 @@
+"""
+Database connection pool and schema management.
+
+Provides a module-level asyncpg connection pool (get_pool / close_pool) and
+a run_schema() helper that applies the base schema and any migrations from
+the db/migrations directory on startup. The pgvector extension is registered
+for every connection via the pool's init hook.
+"""
+
 import asyncpg
 from pgvector.asyncpg import register_vector
 from pathlib import Path

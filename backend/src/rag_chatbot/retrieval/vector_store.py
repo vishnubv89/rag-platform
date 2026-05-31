@@ -1,3 +1,11 @@
+"""
+Hybrid vector + full-text search over the knowledge base.
+
+Combines BM25 keyword ranking (PostgreSQL ts_rank) with semantic vector search
+(pgvector cosine distance) using Reciprocal Rank Fusion (RRF) to produce a
+single ranked list of relevant chunks. Includes a fast-path that skips LLM
+grading when the top RRF score clears a minimum threshold.
+"""
 
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.embeddings.gemini_embedder import embed_text

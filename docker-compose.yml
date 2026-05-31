@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: rag
-      POSTGRES_PASSWORD: rag_secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: rag_db
     ports:
       - "5432:5432"
@@ -28,7 +28,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/rag_db
+      DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD}@postgres:5432/rag_db
       CORS_ORIGINS: '["http://localhost:8080","http://localhost:5173","http://localhost:8081","*"]'
       APP_ENV: development
       JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret}
@@ -96,7 +96,7 @@ services:
       PGHOST: postgres
       PGPORT: 5432
       PGUSER: rag
-      PGPASSWORD: rag_secret
+      PGPASSWORD: ${POSTGRES_PASSWORD}
       PGDATABASE: rag_db
       BACKUP_DIR: /backups
       KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
@@ -128,10 +128,10 @@ services:
       ZITADEL_DATABASE_POSTGRES_PORT: 5432
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: rag
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: rag_secret
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_PASSWORD}
       ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
       ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: rag
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: rag_secret
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_EXTERNALPORT: "8088"
@@ -155,7 +155,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
       - "9090:9000"
       - "9001:9001"
@@ -175,7 +175,7 @@ services:
         condition: service_healthy
     entrypoint: >
       sh -c "
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc alias set local http://minio:9000 minioadmin ${MINIO_ROOT_PASSWORD} &&
         mc mb --ignore-existing local/langfuse-events &&
         mc mb --ignore-existing local/langfuse-media &&
         echo 'MinIO buckets ready'
@@ -206,7 +206,7 @@ services:
     environment:
       CLICKHOUSE_DB: default
       CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -214,7 +214,7 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/langfuse.xml:ro
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --user clickhouse --password clickhouse --query 'SELECT 1'"]
+      test: ["CMD-SHELL", "clickhouse-client --user clickhouse --password ${CLICKHOUSE_PASSWORD} --query 'SELECT 1'"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -236,15 +236,15 @@ services:
     container_name: rag_langfuse_worker
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/langfuse_db
-      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:clickhouse@clickhouse:9000
+      DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD}@postgres:5432/langfuse_db
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:${CLICKHOUSE_PASSWORD}@clickhouse:9000
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       REDIS_CONNECTION_STRING: redis://redis:6379
-      SALT: langfuse-salt-change-in-prod-32chars!!
-      NEXTAUTH_SECRET: langfuse-nextauth-secret-change-in-prod
-      ENCRYPTION_KEY: 5cb95a10aa34e164608a3ba3312edbbf5a96e31e6025b6f7c159e61042db97e8
+      SALT: ${LANGFUSE_SALT}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
       TELEMETRY_ENABLED: "false"
       LANGFUSE_LOG_LEVEL: warn
       # MinIO / S3-compatible event + media storage
@@ -253,14 +253,14 @@ services:
       LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse-media
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
     depends_on:
       postgres:
@@ -279,16 +279,16 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://rag:rag_secret@postgres:5432/langfuse_db
-      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:clickhouse@clickhouse:9000
+      DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD}@postgres:5432/langfuse_db
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:${CLICKHOUSE_PASSWORD}@clickhouse:9000
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       REDIS_CONNECTION_STRING: redis://redis:6379
-      NEXTAUTH_SECRET: langfuse-nextauth-secret-change-in-prod
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
       NEXTAUTH_URL: http://localhost:3000
-      SALT: langfuse-salt-change-in-prod-32chars!!
-      ENCRYPTION_KEY: 5cb95a10aa34e164608a3ba3312edbbf5a96e31e6025b6f7c159e61042db97e8
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
       TELEMETRY_ENABLED: "false"
       LANGFUSE_LOG_LEVEL: warn
       # MinIO / S3-compatible event + media storage
@@ -297,14 +297,14 @@ services:
       LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse-media
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       # Bootstrap org, project and admin user on first run.
       # LANGFUSE_INIT_ORG_ID and LANGFUSE_INIT_PROJECT_ID are required to

@@ -1,3 +1,11 @@
+"""
+FastAPI dependency functions for authentication and authorisation.
+
+Provides verify_admin_key (X-Admin-Key header validation), require_user
+(Bearer JWT validation supporting both local HS256 and Zitadel RS256 tokens),
+and RBAC helpers (require_admin, require_superadmin, assert_org_access).
+"""
+
 import hashlib
 import logging
 

@@ -1,11 +1,37 @@
-import asyncio
-from contextlib import asynccontextmanager
-import json
+"""
+Knowledge Mesh API — application entry point.
+
+Assembles the FastAPI application: middleware, CORS, rate limiting,
+exception handlers, and router registration. Business logic lives in
+api/routers/; data access in db/repositories/; schemas in api/schemas.py.
+"""
+
 import logging
-from pathlib import Path
 import tempfile
-import time
-from uuid import UUID, uuid4
+import traceback
+from contextlib import asynccontextmanager
+from pathlib import Path
+from uuid import UUID
+
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+
+from rag_chatbot.api.rate_limit import limiter, rate_limit_exceeded_handler
+from rag_chatbot.api.schemas import IngestTextRequest, IngestResponse
+from rag_chatbot.api.routers.chat import router as chat_router
+from rag_chatbot.api.routers.sessions import router as sessions_router
+from rag_chatbot.api.routers.curate import router as curate_router
+from rag_chatbot.api.routers.suggest import router as suggest_router
+from rag_chatbot.api.admin_router import router as admin_router
+from rag_chatbot.api.zitadel_enrich import router as enrich_router
+from rag_chatbot.auth.router import router as auth_router
+from rag_chatbot.config import settings
+from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
+from rag_chatbot.db.connection import close_pool, run_schema
+from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
+from rag_chatbot.observability import init_datadog, init_otel
 
 _rag_log = logging.getLogger("rag_chatbot")
 _rag_log.setLevel(logging.INFO)
@@ -14,29 +40,11 @@ if not _rag_log.handlers:
     _h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
     _rag_log.addHandler(_h)
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from slowapi.errors import RateLimitExceeded
-
-from rag_chatbot.api.rate_limit import limiter, rate_limit_exceeded_handler
-from pydantic import BaseModel
-
-from rag_chatbot.config import settings
-from rag_chatbot.db.connection import run_schema, close_pool, get_pool
-from rag_chatbot.agent.graph import rag_graph
-from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
-from rag_chatbot.api.admin_router import router as admin_router
-from rag_chatbot.api.zitadel_enrich import router as enrich_router
-from rag_chatbot.api.deps import require_user, extract_zitadel_token
-from rag_chatbot.auth.router import router as auth_router
-from rag_chatbot.connectors.sync_engine import start_scheduler, stop_scheduler
-from rag_chatbot.retrieval.vector_store import hybrid_search
-from rag_chatbot.llm.client import generate as llm_generate
-from rag_chatbot.observability import get_langfuse, init_datadog, init_otel
+logger = logging.getLogger(__name__)
 
 
 def _is_valid_uuid(value: str) -> bool:
+    """Return True if value is a well-formed UUID string."""
     try:
         UUID(value)
         return True
@@ -46,6 +54,7 @@ def _is_valid_uuid(value: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Run startup tasks (schema migration, observability init) then teardown."""
     await run_schema()
     init_datadog()
     init_otel()
@@ -75,859 +84,43 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
 app.include_router(enrich_router)  # /internal/zitadel/enrich — internal only
+app.include_router(chat_router)
+app.include_router(sessions_router)
+app.include_router(curate_router)
+app.include_router(suggest_router)
 
 
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
-
-class ChatRequest(BaseModel):
-    message: str
-    history: list[dict] = []
-    org_id: int | None = None
-    session_id: str | None = None
-
-
-class ChatResponse(BaseModel):
-    answer: str
-    source_chunk_ids: list[int]
-    sources: list[dict]
-    loop_count: int
-    session_id: str
-
-
-class SuggestRequest(BaseModel):
-    context: str
-    org_id: int | None = None
-
-
-class SuggestResponse(BaseModel):
-    suggestion: str
-    sources: list[dict]
-
-
-class FollowUpRequest(BaseModel):
-    messages: list[dict]
-    org_id: int | None = None
-
-
-class FollowUpResponse(BaseModel):
-    suggestions: list[str]
-
-
-class CurateRequest(BaseModel):
-    title: str = ""
-    content: str
-    org_id: int | None = None
-
-
-class CurateChange(BaseModel):
-    dimension: str
-    description: str
-
-
-class CurateResponse(BaseModel):
-    improved_title: str
-    improved_content: str
-    changes: list[CurateChange]
-    score_before: int
-    score_after: int
-    sources: list[dict]
-
-
-class SNCategory(BaseModel):
-    sys_id: str
-    label: str
-
-
-class CurateSyncRequest(BaseModel):
-    title: str
-    content: str
-    category_sys_id: str
-    publish: bool = False
-    external_id: str | None = None   # existing SN sys_id → PATCH; None → POST
-    org_id: int | None = None
-
-
-class CurateSyncResponse(BaseModel):
-    sys_id: str
-    url: str
-    action: str   # "created" | "updated"
-
-
-class IngestTextRequest(BaseModel):
-    title: str
-    text: str
-    source: str = ""
-
-
-class IngestResponse(BaseModel):
-    doc_id: int
-    title: str
-    chunks: int
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-@app.post("/chat", response_model=ChatResponse)
-@limiter.limit("20/minute")
-async def chat(req: ChatRequest, request: Request):
-    user = await require_user(request)
-    try:
-        session_id = str(UUID(req.session_id)) if req.session_id else str(uuid4())
-    except ValueError:
-        session_id = str(uuid4())
-    messages = req.history + [{"role": "user", "content": req.message}]
-    initial_state = {
-        "messages": messages,
-        "query": req.message,
-        "retrieved_docs": [],
-        "grading_passed": False,
-        "loop_count": 0,
-        "answer": "",
-        "source_chunk_ids": [],
-        "sources": [],
-        "skip_retrieval": False,
-        "kb_overview": False,
-        "llm_config": {},
-        "org_id": None,
-        "user_zitadel_token": extract_zitadel_token(request),
-        "action_intent": None,
-        "action_params": {},
-        "action_result": None,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-    }
-    # Resolve org_id: user's own org > explicit request field > default org
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        org_id = (
-            user.get("org_id")        # SSO/local user's assigned org (primary)
-            or req.org_id             # explicit override in request (superadmin)
-            or await conn.fetchval("SELECT id FROM organizations WHERE slug='default'")
-        )
-        rows = await conn.fetch(
-            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-        ) if org_id else []
-    llm_config = {r["key"]: r["value"] for r in rows}
-
-    lf = get_langfuse()
-
-    t0 = time.monotonic()
-    try:
-        from langfuse._client.propagation import _propagate_attributes
-        _state = initial_state | {"llm_config": llm_config, "org_id": org_id}
-        if lf:
-            with _propagate_attributes(
-                user_id=str(user.get("id")),
-                session_id=session_id,
-                tags=[f"org:{org_id}"] if org_id else [],
-                metadata={"org_id": str(org_id)} if org_id else {},
-            ):
-                with lf.start_as_current_observation(
-                    name="rag-chat",
-                    as_type="chain",
-                    input={"query": req.message},
-                ) as trace:
-                    final_state = await rag_graph.ainvoke(_state)
-                    trace.update(output={"answer": final_state.get("answer", "")})
-        else:
-            final_state = await rag_graph.ainvoke(_state)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    latency_ms = int((time.monotonic() - t0) * 1000)
-
-    async with pool.acquire() as conn:
-        if org_id is not None:
-            await conn.execute(
-                """
-                INSERT INTO chat_logs
-                    (org_id, session_id, user_message, assistant_response,
-                     source_chunk_ids, loop_count, latency_ms, user_id,
-                     prompt_tokens, completion_tokens)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-                """,
-                org_id,
-                UUID(session_id),
-                req.message,
-                final_state["answer"],
-                final_state["source_chunk_ids"],
-                final_state["loop_count"],
-                latency_ms,
-                user["id"],
-                final_state.get("prompt_tokens", 0),
-                final_state.get("completion_tokens", 0),
-            )
-
-    return ChatResponse(
-        answer=final_state["answer"],
-        source_chunk_ids=final_state["source_chunk_ids"],
-        sources=final_state.get("sources", []),
-        loop_count=final_state["loop_count"],
-        session_id=session_id,
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+    """Log full traceback server-side; return sanitised message to client."""
+    logger.error(
+        "Unhandled %s %s\n%s",
+        request.method,
+        request.url.path,
+        traceback.format_exc(),
     )
+    return JSONResponse(status_code=500, content={"detail": "An internal error occurred."})
 
 
-@app.post("/chat/stream")
-@limiter.limit("20/minute")
-async def chat_stream(req: ChatRequest, request: Request):
-    user = await require_user(request)
-    try:
-        session_id = str(UUID(req.session_id)) if req.session_id else str(uuid4())
-    except ValueError:
-        session_id = str(uuid4())
-    messages = req.history + [{"role": "user", "content": req.message}]
-
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        org_id = (
-            user.get("org_id")        # SSO/local user's assigned org (primary)
-            or req.org_id             # explicit override (superadmin)
-            or await conn.fetchval("SELECT id FROM organizations WHERE slug='default'")
-        )
-        rows = await conn.fetch(
-            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-        ) if org_id else []
-    llm_config = {r["key"]: r["value"] for r in rows}
-
-    initial_state = {
-        "messages": messages,
-        "query": req.message,
-        "retrieved_docs": [],
-        "grading_passed": False,
-        "loop_count": 0,
-        "answer": "",
-        "source_chunk_ids": [],
-        "sources": [],
-        "skip_retrieval": False,
-        "kb_overview": False,
-        "llm_config": llm_config,
-        "org_id": org_id,
-        "user_zitadel_token": extract_zitadel_token(request),
-        "action_intent": None,
-        "action_params": {},
-        "action_result": None,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-    }
-
-    lf = get_langfuse()
-
-    async def event_generator():
-        from langfuse._client.propagation import _propagate_attributes
-        t0 = time.monotonic()
-        final_state: dict = {}
-        lf_trace = None
-        _prop_ctx = None
-        if lf:
-            _prop_ctx = _propagate_attributes(
-                user_id=str(user.get("id")),
-                session_id=session_id,
-                tags=[f"org:{org_id}"] if org_id else [],
-                metadata={"org_id": str(org_id)} if org_id else {},
-            )
-            _prop_ctx.__enter__()
-            lf_trace = lf.start_observation(
-                name="rag-chat-stream",
-                as_type="chain",
-                input={"query": req.message},
-            )
-        try:
-            async for event in rag_graph.astream_events(
-                initial_state, version="v2"
-            ):
-                if event["event"] == "on_custom_event" and event["name"] == "stream_token":
-                    token = event["data"].get("token", "")
-                    if token:
-                        yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
-                elif event["event"] == "on_chain_end" and event["name"] == "LangGraph":
-                    final_state = event["data"].get("output", {})
-        except Exception as e:
-            if lf_trace:
-                lf_trace.end()
-            if _prop_ctx:
-                _prop_ctx.__exit__(None, None, None)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-            return
-
-        if lf_trace:
-            lf_trace.update(output={"answer": final_state.get("answer", "")})
-            lf_trace.end()
-        if _prop_ctx:
-            _prop_ctx.__exit__(None, None, None)
-
-        latency_ms = int((time.monotonic() - t0) * 1000)
-
-        log_id: int | None = None
-        async with pool.acquire() as conn:
-            if org_id is not None:
-                log_id = await conn.fetchval(
-                    """
-                    INSERT INTO chat_logs
-                        (org_id, session_id, user_message, assistant_response,
-                         source_chunk_ids, loop_count, latency_ms, user_id,
-                         prompt_tokens, completion_tokens)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-                    RETURNING id
-                    """,
-                    org_id,
-                    UUID(session_id),
-                    req.message,
-                    final_state.get("answer", ""),
-                    final_state.get("source_chunk_ids", []),
-                    final_state.get("loop_count", 0),
-                    latency_ms,
-                    user["id"],
-                    final_state.get("prompt_tokens", 0),
-                    final_state.get("completion_tokens", 0),
-                )
-
-        yield f"data: {json.dumps({'type': 'done', 'log_id': log_id, 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-class FeedbackRequest(BaseModel):
-    value: int  # 1 = thumbs up, -1 = thumbs down
-
-
-@app.post("/chat/{log_id}/feedback", status_code=204)
-@limiter.limit("60/minute")
-async def submit_feedback(log_id: int, req: FeedbackRequest, request: Request):
-    await require_user(request)
-    if req.value not in (1, -1):
-        raise HTTPException(status_code=422, detail="value must be 1 or -1")
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        updated = await conn.fetchval(
-            "UPDATE chat_logs SET feedback=$1 WHERE id=$2 RETURNING id",
-            req.value,
-            log_id,
-        )
-    if updated is None:
-        raise HTTPException(status_code=404, detail="Log not found")
-
-
-_SUGGEST_SYSTEM = (
-    "You are a writing assistant helping a user draft a document. "
-    "Based on the writing context and the reference document chunks provided, "
-    "suggest the next paragraph or section that naturally continues the document. "
-    "Write in the same tone and style as the existing content. "
-    "Use only facts from the reference chunks — do not invent information. "
-    "Output only the suggested text, no preamble or explanation."
-)
-
-
-@app.post("/suggest", response_model=SuggestResponse)
-@limiter.limit("30/minute")
-async def suggest(req: SuggestRequest, request: Request):
-    await require_user(request)
-    import asyncio
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        org_id = req.org_id or await conn.fetchval(
-            "SELECT id FROM organizations WHERE slug='default'"
-        )
-        rows = await conn.fetch(
-            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-        ) if org_id else []
-    llm_config = {r["key"]: r["value"] for r in rows}
-
-    query = req.context[-800:].strip()
-    try:
-        docs = await hybrid_search(query, top_k=5, org_id=org_id)
-    except Exception:
-        docs = []
-
-    if docs:
-        context_block = "\n\n".join(
-            f"[{d.get('doc_title','Unknown')}]\n{d['text']}" for d in docs
-        )
-        prompt = f"Document so far:\n{req.context}\n\nReference material:\n{context_block}"
-    else:
-        prompt = f"Document so far:\n{req.context}"
-
-    loop = asyncio.get_running_loop()
-    try:
-        suggestion = await loop.run_in_executor(
-            None, lambda: llm_generate(prompt, _SUGGEST_SYSTEM, llm_config)
-        )
-    except Exception as e:
-        msg = str(e)
-        if "quota" in msg.lower() or "429" in msg or "resource_exhausted" in msg.lower():
-            raise HTTPException(status_code=429, detail="LLM quota exceeded. Please wait a moment.")
-        raise HTTPException(status_code=500, detail=msg[:400])
-
-    sources = [
-        {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
-        for d in docs
-    ]
-    seen: set[int] = set()
-    unique_sources = [s for s in sources if not (s["doc_id"] in seen or seen.add(s["doc_id"]))]  # type: ignore[func-returns-value]
-
-    return SuggestResponse(suggestion=suggestion, sources=unique_sources)
-
-
-_CURATE_SYSTEM = (
-    "You are an expert knowledge-article quality curator applying KCS (Knowledge-Centered Service) "
-    "v6 and ITIL 4 best-practice standards.\n\n"
-    "Evaluate the provided document against these seven quality dimensions and return improvements:\n"
-    "1. Structure — Has a clear title, purpose/scope, step-by-step procedure, expected outcome, and references section.\n"
-    "2. Clarity — Plain language, active voice, no undefined acronyms or jargon.\n"
-    "3. Completeness — All required sections present, no information gaps or dangling references.\n"
-    "4. Accuracy — Consistent terminology, no contradictions, technically sound.\n"
-    "5. Actionability — Numbered steps where applicable, specific instructions, measurable outcomes.\n"
-    "6. Findability — Clear, search-friendly title with relevant keywords.\n"
-    "7. Readability — Appropriate length, proper headings, scannable bullet points.\n\n"
-    "SCORING RULES (mandatory):\n"
-    "- Score on a 0–100 integer scale (e.g. 45, 72, 88). NEVER use fractions or decimals.\n"
-    "- score_before = honest assessment of the original document BEFORE your changes.\n"
-    "- score_after  = your realistic estimate of the improved document AFTER your changes.\n"
-    "- score_after MUST be strictly greater than score_before. Minimum improvement: +10 points.\n"
-    "- A typical raw KB article scores 20–55; a well-structured article scores 70–90.\n\n"
-    "CHANGES RULES (mandatory):\n"
-    "- You MUST list at least 3 improvements across different dimensions, even for decent articles.\n"
-    "- Be specific: describe exactly what you changed and why it improves the dimension.\n\n"
-    "Respond using EXACTLY this two-part format and no other text:\n\n"
-    "METADATA\n"
-    '{"improved_title":"...","score_before":N,"score_after":N,"changes":[{"dimension":"...","description":"..."}]}\n'
-    "---CONTENT---\n"
-    "<full improved document body here — plain text or markdown, no JSON escaping needed>\n\n"
-    "Rules:\n"
-    "- The METADATA JSON must be a single-line valid JSON object (no newlines inside it).\n"
-    "- After ---CONTENT--- write the full improved document with normal markdown; do NOT escape anything.\n"
-    "- If reference material is provided, incorporate relevant facts but do not invent information.\n"
-    "- Rewrite the full document, not just a summary — the improved content must be complete."
-)
-
-
-@app.post("/curate", response_model=CurateResponse)
-@limiter.limit("20/minute")
-async def curate(req: CurateRequest, request: Request):
-    """Improve a document against KCS/ITIL industry quality standards."""
-    await require_user(request)
-    import asyncio, json as _json
-
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        org_id = req.org_id or await conn.fetchval(
-            "SELECT id FROM organizations WHERE slug='default'"
-        )
-        rows = await conn.fetch(
-            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-        ) if org_id else []
-    llm_config = {r["key"]: r["value"] for r in rows}
-
-    # Hybrid-search for related KB articles to use as reference material.
-    # Only include docs with a meaningful relevance score to avoid injecting
-    # unrelated context (e.g. an exam-prep guide when curating a VPN article).
-    search_query = f"{req.title} {req.content[:600]}".strip()
-    try:
-        raw_docs = await hybrid_search(search_query, top_k=8, org_id=org_id)
-        # Filter: keep only docs whose RRF score clears a minimum threshold
-        docs = [d for d in raw_docs if d.get("score", 0) >= 0.012][:5]
-    except Exception:
-        docs = []
-
-    doc_header = f"Title: {req.title}\n\n" if req.title else ""
-    if docs:
-        ref_block = "\n\n".join(
-            f"[{d.get('doc_title', 'Reference')}]\n{d['text']}" for d in docs
-        )
-        prompt = (
-            f"Document to curate:\n{doc_header}{req.content}\n\n"
-            f"Reference material from knowledge base:\n{ref_block}"
-        )
-    else:
-        prompt = f"Document to curate:\n{doc_header}{req.content}"
-
-    loop = asyncio.get_running_loop()
-    try:
-        raw = await loop.run_in_executor(
-            None, lambda: llm_generate(prompt, _CURATE_SYSTEM, llm_config)
-        )
-    except Exception as e:
-        msg = str(e)
-        # Gemini quota errors are very long — return a clean one-liner
-        if "quota" in msg.lower() or "429" in msg or "resource_exhausted" in msg.lower():
-            raise HTTPException(
-                status_code=429,
-                detail="LLM quota exceeded. Please wait a moment and try again.",
-            )
-        raise HTTPException(status_code=500, detail=msg[:400])
-
-    # ── Parse split-format response ─────────────────────────────────────────
-    # Format:
-    #   METADATA
-    #   {"improved_title":...,"score_before":N,"score_after":N,"changes":[...]}
-    #   ---CONTENT---
-    #   <full improved document — no JSON escaping>
-    #
-    # Splitting on ---CONTENT--- means the document body never goes inside a
-    # JSON string, so double-quotes, backslashes and newlines cause no issues.
-    SPLIT = "---CONTENT---"
-    raw = raw.strip()
-
-    # Strip accidental markdown fences the LLM may wrap around everything
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[-1]
-        raw = raw.rsplit("```", 1)[0].strip()
-
-    improved_content_raw = ""
-    if SPLIT in raw:
-        meta_block, improved_content_raw = raw.split(SPLIT, 1)
-        improved_content_raw = improved_content_raw.strip()
-    else:
-        # LLM ignored the format — fall back to pure JSON parse
-        meta_block = raw
-
-    # Extract the JSON object from the metadata block.
-    # The LLM may put "METADATA" as a label before the JSON, and the changes
-    # array may span multiple lines — use DOTALL so we capture the full object.
-    import re as _re
-    json_match = _re.search(r"\{.*\}", meta_block, _re.DOTALL)
-    json_line = json_match.group(0) if json_match else None
-    if not json_line:
-        raise HTTPException(
-            status_code=500,
-            detail=f"LLM returned unparseable response: {meta_block[:200]}",
-        )
-
-    try:
-        data = _json.loads(json_line)
-    except _json.JSONDecodeError:
-        try:
-            data = _json.loads(json_line, strict=False)
-        except _json.JSONDecodeError:
-            raise HTTPException(
-                status_code=500,
-                detail=f"LLM metadata not valid JSON: {json_line[:200]}",
-            )
-
-    # If the content came via the split format use it; otherwise fall back to
-    # whatever the LLM put in the JSON "improved_content" field.
-    if not improved_content_raw:
-        improved_content_raw = data.get("improved_content", req.content)
-
-    changes = [
-        CurateChange(dimension=c.get("dimension", ""), description=c.get("description", ""))
-        for c in data.get("changes", [])
-    ]
-    sources = [
-        {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
-        for d in docs
-    ]
-    seen: set[int] = set()
-    unique_sources = [s for s in sources if not (s["doc_id"] in seen or seen.add(s["doc_id"]))]  # type: ignore[func-returns-value]
-
-    score_before = max(1, min(100, int(data.get("score_before", 50))))
-    score_after  = max(1, min(100, int(data.get("score_after", 80))))
-    # Guarantee the after-score is always better than before (LLM sometimes ignores the rule)
-    if score_after <= score_before:
-        score_after = min(100, score_before + 15)
-
-    return CurateResponse(
-        improved_title=data.get("improved_title", req.title),
-        improved_content=improved_content_raw,
-        changes=changes,
-        score_before=score_before,
-        score_after=score_after,
-        sources=unique_sources,
-    )
-
-
-# ---------------------------------------------------------------------------
-# ServiceNow write-back helpers
-# ---------------------------------------------------------------------------
-
-def _text_to_sn_html(text: str) -> str:
-    """Convert plain-text document to minimal ServiceNow-compatible HTML."""
-    import html as _html
-    lines = text.splitlines()
-    parts: list[str] = []
-    buf: list[str] = []
-
-    def flush_buf() -> None:
-        if buf:
-            para = " ".join(buf).strip()
-            if para:
-                parts.append(f"<p>{_html.escape(para)}</p>")
-            buf.clear()
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            flush_buf()
-            continue
-        # Markdown-style headings → <h3>
-        if stripped.startswith("### "):
-            flush_buf()
-            parts.append(f"<h3>{_html.escape(stripped[4:])}</h3>")
-        elif stripped.startswith("## "):
-            flush_buf()
-            parts.append(f"<h2>{_html.escape(stripped[3:])}</h2>")
-        elif stripped.startswith("# "):
-            flush_buf()
-            parts.append(f"<h1>{_html.escape(stripped[2:])}</h1>")
-        # Numbered / bullet list items
-        elif stripped.startswith(("- ", "* ", "• ")):
-            flush_buf()
-            parts.append(f"<li>{_html.escape(stripped[2:])}</li>")
-        elif stripped[0].isdigit() and ". " in stripped[:5]:
-            flush_buf()
-            item = stripped.split(". ", 1)[-1]
-            parts.append(f"<li>{_html.escape(item)}</li>")
-        else:
-            buf.append(stripped)
-
-    flush_buf()
-    return "\n".join(parts)
-
-
-async def _get_sn_connector(org_id: int | None) -> dict:
-    """Return the ServiceNow connector config dict for the given org."""
-    import json as _json
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT config FROM connectors
-            WHERE connector_type = 'servicenow'
-              AND is_active = true
-              AND ($1::bigint IS NULL OR org_id = $1)
-            ORDER BY id
-            LIMIT 1
-            """,
-            org_id,
-        )
-    if not row:
-        raise HTTPException(status_code=404, detail="No active ServiceNow connector found for this org")
-    cfg = row["config"]
-    return _json.loads(cfg) if isinstance(cfg, str) else dict(cfg)
-
-
-@app.get("/curate/categories", response_model=list[SNCategory])
-@limiter.limit("30/minute")
-async def curate_categories(request: Request, org_id: int | None = None):
-    """Fetch KB categories from the org's ServiceNow connector."""
-    import httpx
-    await require_user(request)
-    cfg = await _get_sn_connector(org_id)
-
-    kb_sys_id = cfg.get("kb_sys_id", "")
-    params: dict = {
-        "sysparm_fields": "sys_id,label",
-        "sysparm_limit": 200,
-    }
-    if kb_sys_id:
-        params["sysparm_query"] = f"kb_knowledge_base={kb_sys_id}"
-
-    try:
-        async with httpx.AsyncClient(
-            base_url=cfg["instance_url"].rstrip("/"),
-            auth=(cfg["username"], cfg["password"]),
-            timeout=15,
-        ) as client:
-            r = await client.get("/api/now/table/kb_category", params=params)
-            r.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"ServiceNow error: {e.response.status_code}")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"ServiceNow unreachable: {e}")
-
-    result = r.json().get("result", [])
-    items = [result] if isinstance(result, dict) else result
-    categories = [
-        SNCategory(sys_id=item["sys_id"], label=item.get("label", item["sys_id"]))
-        for item in items
-        if item.get("sys_id")
-    ]
-    # Always include a sensible fallback so the dropdown is never empty
-    if not categories:
-        categories = [SNCategory(sys_id="", label="(no category)")]
-    return sorted(categories, key=lambda c: c.label)
-
-
-@app.post("/curate/sync", response_model=CurateSyncResponse)
-@limiter.limit("20/minute")
-async def curate_sync(req: CurateSyncRequest, request: Request):
-    """Push a curated document back to ServiceNow as a KB article."""
-    import httpx
-    await require_user(request)
-    cfg = await _get_sn_connector(req.org_id)
-
-    instance_url = cfg["instance_url"].rstrip("/")
-    html_body = _text_to_sn_html(req.content)
-
-    payload: dict = {
-        "short_description": req.title,
-        "text": html_body,
-        "workflow_state": "published" if req.publish else "draft",
-    }
-    if cfg.get("kb_sys_id"):
-        payload["kb_knowledge_base"] = cfg["kb_sys_id"]
-    if req.category_sys_id:
-        payload["kb_category"] = req.category_sys_id
-
-    try:
-        async with httpx.AsyncClient(
-            base_url=instance_url,
-            auth=(cfg["username"], cfg["password"]),
-            timeout=30,
-        ) as client:
-            if req.external_id:
-                # Update existing article
-                r = await client.patch(
-                    f"/api/now/table/kb_knowledge/{req.external_id}",
-                    json=payload,
-                )
-            else:
-                # Create new article
-                r = await client.post("/api/now/table/kb_knowledge", json=payload)
-            r.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"ServiceNow error {e.response.status_code}: {e.response.text[:300]}")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"ServiceNow unreachable: {e}")
-
-    result = r.json().get("result", {})
-    item = result[0] if isinstance(result, list) else result
-    sys_id = item.get("sys_id", req.external_id or "")
-    url = f"{instance_url}/kb_view.do?sys_kb_id={sys_id}"
-    action = "updated" if req.external_id else "created"
-
-    return CurateSyncResponse(sys_id=sys_id, url=url, action=action)
-
-
-_FOLLOWUP_SYSTEM = (
-    "You generate concise follow-up questions for a conversation. "
-    "Output ONLY a raw JSON array of exactly 3 short question strings. "
-    "No markdown, no explanation, no preamble — just the JSON array."
-)
-
-
-@app.post("/chat/followup", response_model=FollowUpResponse)
-@limiter.limit("60/minute")
-async def chat_followup(req: FollowUpRequest, request: Request):
-    await require_user(request)
-    import asyncio
-    import json as _json
-    recent = req.messages[-6:]
-    history = "\n".join(
-        f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent
-    )
-    prompt = (
-        f"Conversation so far:\n{history}\n\n"
-        "Generate 3 natural follow-up questions the user might want to ask next. "
-        "Make them specific to what was discussed, not generic."
-    )
-    loop = asyncio.get_running_loop()
-    try:
-        # Always use Gemini for suggestions — fast, lightweight, unaffected
-        # by the org's primary LLM provider setting or its credit balance.
-        raw = await loop.run_in_executor(
-            None, lambda: llm_generate(prompt, _FOLLOWUP_SYSTEM, {"llm_provider": "gemini"})
-        )
-        start, end = raw.index("["), raw.rindex("]") + 1
-        suggestions = json.loads(raw[start:end])[:3]
-        suggestions = [s for s in suggestions if isinstance(s, str)]
-    except Exception:
-        suggestions = []
-    return FollowUpResponse(suggestions=suggestions)
-
-
-@app.get("/chat/sessions")
-@limiter.limit("60/minute")
-async def list_sessions(request: Request):
-    user = await require_user(request)
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT session_id,
-                   MIN(user_message)           AS preview,
-                   COUNT(*)                    AS message_count,
-                   MAX(created_at)             AS last_active
-            FROM chat_logs
-            WHERE user_id = $1
-            GROUP BY session_id
-            ORDER BY last_active DESC
-            LIMIT 50
-            """,
-            user["id"],
-        )
-    return {
-        "sessions": [
-            {
-                "session_id": str(r["session_id"]),
-                "preview": (r["preview"] or "")[:80],
-                "message_count": r["message_count"],
-                "last_active": r["last_active"].isoformat(),
-            }
-            for r in rows
-        ]
-    }
-
-
-@app.get("/chat/sessions/{session_id}")
-@limiter.limit("60/minute")
-async def get_session(session_id: str, request: Request):
-    user = await require_user(request)
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, user_message, assistant_response,
-                   source_chunk_ids, feedback, created_at
-            FROM chat_logs
-            WHERE session_id = $1 AND user_id = $2
-            ORDER BY created_at ASC
-            """,
-            UUID(session_id),
-            user["id"],
-        )
-    messages = []
-    for r in rows:
-        messages.append({
-            "role": "user",
-            "content": r["user_message"],
-            "log_id": None,
-            "source_chunk_ids": [],
-            "sources": [],
-            "feedback": None,
-            "timestamp": r["created_at"].isoformat(),
-        })
-        messages.append({
-            "role": "assistant",
-            "content": r["assistant_response"],
-            "log_id": r["id"],
-            "source_chunk_ids": list(r["source_chunk_ids"] or []),
-            "sources": [],
-            "feedback": r["feedback"],
-            "timestamp": r["created_at"].isoformat(),
-        })
-    return {"session_id": session_id, "messages": messages}
+@app.get("/health")
+async def health() -> dict:
+    """Return service liveness status."""
+    return {"status": "ok"}
 
 
 @app.post("/ingest/text", response_model=IngestResponse)
-async def ingest_text_endpoint(req: IngestTextRequest):
+async def ingest_text_endpoint(req: IngestTextRequest) -> IngestResponse:
+    """Ingest a plain-text document into the knowledge base."""
     try:
-        result = await ingest_text(
-            text=req.text, title=req.title, source=req.source
-        )
+        result = await ingest_text(text=req.text, title=req.title, source=req.source)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal error") from e
     return IngestResponse(**result)
 
 
 @app.post("/ingest/file", response_model=IngestResponse)
-async def ingest_file_endpoint(file: UploadFile = File(...)):
+async def ingest_file_endpoint(file: UploadFile = File(...)) -> IngestResponse:
+    """Ingest an uploaded file (PDF, DOCX, TXT) into the knowledge base."""
     suffix = Path(file.filename or "upload").suffix or ".txt"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
@@ -935,103 +128,7 @@ async def ingest_file_endpoint(file: UploadFile = File(...)):
     try:
         result = await ingest_file(tmp_path, title=file.filename)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal error") from e
     finally:
         Path(tmp_path).unlink(missing_ok=True)
     return IngestResponse(**result)
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-# ── Document topics (user-facing, cached) ────────────────────────────────────
-
-_TOPIC_COLORS = [
-    "#4dabf7", "#69db7c", "#ffa94d", "#da77f2",
-    "#ff6b6b", "#38d9a9", "#ffd43b", "#a9e34b",
-]
-
-_STOP = frozenset(
-    "a an the and or but in on at to of for is are was were be been being "
-    "have has had do does did will would could should may might shall can "
-    "with by from as into through during before after above below between "
-    "this that these those it its we they them their he she him her "
-    "i me my you your we our us not no nor so yet both either neither "
-    "just also only then than when where which who whom what how "
-    "all any each few more most other some such no nor not only own "
-    "same so than too very s t can will just don should now d ll m o re ve "
-    "figure table section et al e g i e vs".split()
-)
-
-
-def _keyword_topics(chunks: list[str], n_topics: int = 7) -> list[dict]:
-    import re
-    from collections import Counter
-    all_text = " ".join(chunks).lower()
-    words = re.findall(r"[a-z][a-z\-]{2,}", all_text)
-    words = [w for w in words if w not in _STOP and len(w) > 3]
-    uni = Counter(words)
-    bi = Counter(
-        f"{words[i]} {words[i+1]}"
-        for i in range(len(words) - 1)
-        if words[i] not in _STOP and words[i + 1] not in _STOP
-    )
-    seen: set[str] = set()
-    topics: list[dict] = []
-    for phrase, _ in bi.most_common(n_topics * 2):
-        if len(topics) >= n_topics:
-            break
-        w1, w2 = phrase.split()
-        if w1 in seen or w2 in seen:
-            continue
-        seen.update([w1, w2])
-        subs = [w for w, _ in uni.most_common(50) if w not in seen and w not in {w1, w2}][:3]
-        seen.update(subs)
-        topics.append({"label": phrase.title(), "subtopics": [s.capitalize() for s in subs]})
-    return topics
-
-
-@app.get("/docs/{doc_id}/topics")
-@limiter.limit("30/minute")
-async def get_doc_topics(request: Request, doc_id: int):
-    """
-    Return (or lazily compute) topic clusters for a document.
-    Results are cached in documents.topics — keyword extraction runs when
-    the column is NULL.  No LLM call is made from this endpoint.
-    """
-    await require_user(request)
-    pool = await get_pool()
-
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, title, topics FROM documents WHERE id=$1", doc_id
-        )
-    if not row:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    if row["topics"] is not None:
-        raw = row["topics"] if isinstance(row["topics"], list) else json.loads(row["topics"])
-    else:
-        # Compute via keyword extraction and cache
-        async with pool.acquire() as conn:
-            chunks = await conn.fetch(
-                "SELECT text FROM chunks WHERE doc_id=$1 ORDER BY chunk_index LIMIT 30",
-                doc_id,
-            )
-        if not chunks:
-            return {"doc_id": doc_id, "title": row["title"], "topics": []}
-
-        raw = _keyword_topics([c["text"] for c in chunks])
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE documents SET topics=$1 WHERE id=$2",
-                json.dumps(raw), doc_id,
-            )
-
-    topics = [
-        {**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]}
-        for i, t in enumerate(raw)
-    ]
-    return {"doc_id": doc_id, "title": row["title"], "topics": topics}

@@ -1,3 +1,11 @@
+"""
+LangGraph agent graph definition.
+
+Wires together the RAG pipeline nodes (contextualize → intent → retrieve →
+grade → rewrite/generate/clarify) using LangGraph's StateGraph. The compiled
+graph is exported as `rag_graph` and invoked by the chat route handlers.
+"""
+
 from langgraph.graph import StateGraph, END
 
 from rag_chatbot.agent.state import AgentState
