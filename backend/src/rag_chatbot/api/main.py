@@ -485,16 +485,16 @@ _CURATE_SYSTEM = (
     "5. Actionability — Numbered steps where applicable, specific instructions, measurable outcomes.\n"
     "6. Findability — Clear, search-friendly title with relevant keywords.\n"
     "7. Readability — Appropriate length, proper headings, scannable bullet points.\n\n"
-    "You MUST respond with a single valid JSON object — no markdown fences, no prose outside the JSON — "
-    "with these exact keys:\n"
-    '  "improved_title": string — improved document title,\n'
-    '  "improved_content": string — the fully improved document body,\n'
-    '  "changes": array of {"dimension": string, "description": string} objects, '
-    "one entry per quality dimension that was actually changed,\n"
-    '  "score_before": integer 1-100 — estimated quality score of the original,\n'
-    '  "score_after": integer 1-100 — estimated quality score of the improved version.\n\n'
-    "If the document already meets a dimension fully, omit it from changes. "
-    "If reference material is provided, incorporate relevant facts but do not invent information."
+    "Respond using EXACTLY this two-part format and no other text:\n\n"
+    "METADATA\n"
+    '{"improved_title":"...","score_before":N,"score_after":N,"changes":[{"dimension":"...","description":"..."}]}\n'
+    "---CONTENT---\n"
+    "<full improved document body here — plain text or markdown, no JSON escaping needed>\n\n"
+    "Rules:\n"
+    "- The METADATA line must be a single-line valid JSON object (no newlines inside it).\n"
+    "- After ---CONTENT--- write the full improved document with normal markdown; do NOT escape anything.\n"
+    "- If the document already meets a dimension fully, omit it from changes.\n"
+    "- If reference material is provided, incorporate relevant facts but do not invent information."
 )
 
 
@@ -549,24 +549,58 @@ async def curate(req: CurateRequest, request: Request):
             )
         raise HTTPException(status_code=500, detail=msg[:400])
 
-    # Parse JSON response — strip any accidental markdown fences
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[-1]
-        cleaned = cleaned.rsplit("```", 1)[0].strip()
+    # ── Parse split-format response ─────────────────────────────────────────
+    # Format:
+    #   METADATA
+    #   {"improved_title":...,"score_before":N,"score_after":N,"changes":[...]}
+    #   ---CONTENT---
+    #   <full improved document — no JSON escaping>
+    #
+    # Splitting on ---CONTENT--- means the document body never goes inside a
+    # JSON string, so double-quotes, backslashes and newlines cause no issues.
+    SPLIT = "---CONTENT---"
+    raw = raw.strip()
 
-    # LLMs often embed literal newlines inside JSON string values instead of
-    # escaping them as \n.  strict=False allows control characters in strings.
+    # Strip accidental markdown fences the LLM may wrap around everything
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        raw = raw.rsplit("```", 1)[0].strip()
+
+    improved_content_raw = ""
+    if SPLIT in raw:
+        meta_block, improved_content_raw = raw.split(SPLIT, 1)
+        improved_content_raw = improved_content_raw.strip()
+    else:
+        # LLM ignored the format — fall back to pure JSON parse
+        meta_block = raw
+
+    # Extract the JSON object from the metadata block.
+    # The LLM may put "METADATA" as a label before the JSON, and the changes
+    # array may span multiple lines — use DOTALL so we capture the full object.
+    import re as _re
+    json_match = _re.search(r"\{.*\}", meta_block, _re.DOTALL)
+    json_line = json_match.group(0) if json_match else None
+    if not json_line:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LLM returned unparseable response: {meta_block[:200]}",
+        )
+
     try:
-        data = _json.loads(cleaned)
+        data = _json.loads(json_line)
     except _json.JSONDecodeError:
         try:
-            data = _json.loads(cleaned, strict=False)
+            data = _json.loads(json_line, strict=False)
         except _json.JSONDecodeError:
             raise HTTPException(
                 status_code=500,
-                detail=f"LLM returned non-JSON: {cleaned[:200]}",
+                detail=f"LLM metadata not valid JSON: {json_line[:200]}",
             )
+
+    # If the content came via the split format use it; otherwise fall back to
+    # whatever the LLM put in the JSON "improved_content" field.
+    if not improved_content_raw:
+        improved_content_raw = data.get("improved_content", req.content)
 
     changes = [
         CurateChange(dimension=c.get("dimension", ""), description=c.get("description", ""))
@@ -581,7 +615,7 @@ async def curate(req: CurateRequest, request: Request):
 
     return CurateResponse(
         improved_title=data.get("improved_title", req.title),
-        improved_content=data.get("improved_content", req.content),
+        improved_content=improved_content_raw,
         changes=changes,
         score_before=max(1, min(100, int(data.get("score_before", 50)))),
         score_after=max(1, min(100, int(data.get("score_after", 80)))),
