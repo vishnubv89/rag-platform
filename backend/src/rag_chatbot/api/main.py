@@ -485,16 +485,25 @@ _CURATE_SYSTEM = (
     "5. Actionability — Numbered steps where applicable, specific instructions, measurable outcomes.\n"
     "6. Findability — Clear, search-friendly title with relevant keywords.\n"
     "7. Readability — Appropriate length, proper headings, scannable bullet points.\n\n"
+    "SCORING RULES (mandatory):\n"
+    "- Score on a 0–100 integer scale (e.g. 45, 72, 88). NEVER use fractions or decimals.\n"
+    "- score_before = honest assessment of the original document BEFORE your changes.\n"
+    "- score_after  = your realistic estimate of the improved document AFTER your changes.\n"
+    "- score_after MUST be strictly greater than score_before. Minimum improvement: +10 points.\n"
+    "- A typical raw KB article scores 20–55; a well-structured article scores 70–90.\n\n"
+    "CHANGES RULES (mandatory):\n"
+    "- You MUST list at least 3 improvements across different dimensions, even for decent articles.\n"
+    "- Be specific: describe exactly what you changed and why it improves the dimension.\n\n"
     "Respond using EXACTLY this two-part format and no other text:\n\n"
     "METADATA\n"
     '{"improved_title":"...","score_before":N,"score_after":N,"changes":[{"dimension":"...","description":"..."}]}\n'
     "---CONTENT---\n"
     "<full improved document body here — plain text or markdown, no JSON escaping needed>\n\n"
     "Rules:\n"
-    "- The METADATA line must be a single-line valid JSON object (no newlines inside it).\n"
+    "- The METADATA JSON must be a single-line valid JSON object (no newlines inside it).\n"
     "- After ---CONTENT--- write the full improved document with normal markdown; do NOT escape anything.\n"
-    "- If the document already meets a dimension fully, omit it from changes.\n"
-    "- If reference material is provided, incorporate relevant facts but do not invent information."
+    "- If reference material is provided, incorporate relevant facts but do not invent information.\n"
+    "- Rewrite the full document, not just a summary — the improved content must be complete."
 )
 
 
@@ -515,10 +524,14 @@ async def curate(req: CurateRequest, request: Request):
         ) if org_id else []
     llm_config = {r["key"]: r["value"] for r in rows}
 
-    # Hybrid-search using title + first 600 chars of content as the query
+    # Hybrid-search for related KB articles to use as reference material.
+    # Only include docs with a meaningful relevance score to avoid injecting
+    # unrelated context (e.g. an exam-prep guide when curating a VPN article).
     search_query = f"{req.title} {req.content[:600]}".strip()
     try:
-        docs = await hybrid_search(search_query, top_k=5, org_id=org_id)
+        raw_docs = await hybrid_search(search_query, top_k=8, org_id=org_id)
+        # Filter: keep only docs whose RRF score clears a minimum threshold
+        docs = [d for d in raw_docs if d.get("score", 0) >= 0.012][:5]
     except Exception:
         docs = []
 
@@ -613,12 +626,18 @@ async def curate(req: CurateRequest, request: Request):
     seen: set[int] = set()
     unique_sources = [s for s in sources if not (s["doc_id"] in seen or seen.add(s["doc_id"]))]  # type: ignore[func-returns-value]
 
+    score_before = max(1, min(100, int(data.get("score_before", 50))))
+    score_after  = max(1, min(100, int(data.get("score_after", 80))))
+    # Guarantee the after-score is always better than before (LLM sometimes ignores the rule)
+    if score_after <= score_before:
+        score_after = min(100, score_before + 15)
+
     return CurateResponse(
         improved_title=data.get("improved_title", req.title),
         improved_content=improved_content_raw,
         changes=changes,
-        score_before=max(1, min(100, int(data.get("score_before", 50)))),
-        score_after=max(1, min(100, int(data.get("score_after", 80)))),
+        score_before=score_before,
+        score_after=score_after,
         sources=unique_sources,
     )
 

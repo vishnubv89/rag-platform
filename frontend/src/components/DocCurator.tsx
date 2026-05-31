@@ -498,7 +498,7 @@ export function DocCurator() {
                 {/* KB sources */}
                 {result.sources.length > 0 && (
                   <div className="px-5 py-3 border-b border-gray-50">
-                    <p className="text-xs text-gray-400 mb-2">Grounded in</p>
+                    <p className="text-xs text-gray-400 mb-2">Reference sources used</p>
                     <div className="flex flex-wrap gap-1.5">
                       {result.sources.map((s) =>
                         s.doc_source ? (
