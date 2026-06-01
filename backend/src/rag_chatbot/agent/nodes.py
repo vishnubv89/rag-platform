@@ -81,9 +81,27 @@ async def contextualize_node(state: AgentState) -> dict:
 # Intent — lightweight keyword check, no LLM call
 # ---------------------------------------------------------------------------
 
+# Matches queries that ask for a general KB overview (no specific document in mind).
+# Deliberately narrow: only trigger when the intent is clearly "show me everything"
+# rather than "tell me about this specific document/topic."
 _KB_OVERVIEW_RE = re.compile(
-    r"(summarize|summary|list|overview|what.*(document|topic|know|cover|help)|"
-    r"show.*document|what.*knowledge.base|what.*in.*kb|what.*can.*you.*help)",
+    r"(summarize\b.{0,25}(documents?|files?|knowledge\s*base|kb)\b|"
+    r"list\s+(all\s+)?(my\s+)?(documents?|files?|topics?)\b|"
+    r"\boverview\b.*\b(knowledge.base|kb|documents?)\b|"
+    r"what\s+(documents?|files?|topics?)\s+(do\s+you\s+have|are\s+(in|available))|"
+    r"what\s+(is\s+in|'?s\s+in)\s+(my\s+)?(the\s+)?(knowledge.base|kb)\b|"
+    r"what.{0,40}\b(knowledge.base|kb)\b\s*\??\s*$|"  # "knowledge base" near end of sentence
+    r"latest\s+updates?\s+(from|in)\s+(the\s+)?(knowledge.base|kb)\b|"
+    r"show\s+(me\s+)?(all\s+)?(the\s+)?(documents?|files?|knowledge)\b|"
+    r"what\s+can\s+you\s+(help|do)\b)",
+    re.IGNORECASE,
+)
+
+# Detects references to a specific document — if present, always do retrieval
+# regardless of other signals (overrides _KB_OVERVIEW_RE).
+_SPECIFIC_DOC_RE = re.compile(
+    r"\b\w[\w\-]*\.(pdf|md|docx|txt|xlsx|pptx|csv|json|html)\b|"  # filename.ext
+    r"\b\d{4}\.\d{4,}v?\d*\b",                                     # arxiv-style IDs
     re.IGNORECASE,
 )
 
@@ -135,7 +153,15 @@ async def intent_node(state: AgentState) -> dict:
     # Use the (possibly contextualized) query set by contextualize_node
     query = state["query"].strip()
     is_chitchat = bool(_CHITCHAT_RE.match(query))
-    is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat
+
+    # A query that references a specific document/file must always go through
+    # retrieval — never short-circuit to the overview path.
+    has_specific_doc = bool(_SPECIFIC_DOC_RE.search(query))
+    is_overview = (
+        bool(_KB_OVERVIEW_RE.search(query))
+        and not is_chitchat
+        and not has_specific_doc
+    )
 
     action_intent = None
     for action_name, pattern in _ACTION_PATTERNS:
@@ -145,8 +171,8 @@ async def intent_node(state: AgentState) -> dict:
 
     skip = is_chitchat or is_overview or (action_intent is not None)
     _log.info(
-        "intent_node | query=%r chitchat=%s overview=%s action=%s",
-        query[:80], is_chitchat, is_overview, action_intent,
+        "intent_node | query=%r chitchat=%s overview=%s specific_doc=%s action=%s",
+        query[:80], is_chitchat, is_overview, has_specific_doc, action_intent,
     )
     return {
         "skip_retrieval": skip,
