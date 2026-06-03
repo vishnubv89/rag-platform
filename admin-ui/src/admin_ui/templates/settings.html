@@ -18,6 +18,40 @@
 <form method="post" action="/settings">
   <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
 
+  <!-- ── Chatbot Personality ──────────────────────────────────────── -->
+  <div class="card stat-card mb-3">
+    <div class="card-header fw-semibold">
+      <i class="bi bi-robot me-2"></i>Chatbot Personality
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Chatbot Name</label>
+          <input class="form-control" name="chatbot_name"
+                 placeholder="e.g. ACME Support Bot, TechAssist, HR Helper"
+                 value="{{ config.get('chatbot_name', '') }}">
+          <div class="form-text">
+            How the assistant introduces itself. Leave blank to use the default.
+          </div>
+        </div>
+
+        <div class="col-md-8">
+          <label class="form-label fw-semibold">System Instructions</label>
+          <textarea class="form-control font-monospace" name="chatbot_instructions"
+                    rows="5"
+                    placeholder="e.g.&#10;You are a helpful IT support assistant for ACME Corp.&#10;Always respond in a professional and concise tone.&#10;Focus only on IT-related topics. For HR or finance questions, direct users to hr@acme.com.&#10;Always end your response with: 'Is there anything else I can help you with?'">{{ config.get('chatbot_instructions', '') }}</textarea>
+          <div class="form-text">
+            Custom instructions prepended to every response prompt.
+            Use this to set tone, focus area, escalation paths, or any org-specific behaviour.
+            The grounding rules (answer only from KB content) are always enforced on top of these.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- ── LLM Provider ─────────────────────────────────────────────── -->
   <div class="card stat-card mb-3">
     <div class="card-header fw-semibold">LLM Provider</div>

@@ -450,7 +450,7 @@ async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
         "Provide a concise overview of the topics covered, grouping related documents."
     )
 
-    answer, pt, ct = await _stream_llm(prompt, _KB_OVERVIEW_SYSTEM, cfg, config)
+    answer, pt, ct = await _stream_llm(prompt, _apply_org_persona(_KB_OVERVIEW_SYSTEM, cfg), cfg, config)
 
     return {
         "answer": answer,
@@ -478,6 +478,32 @@ _GENERATOR_SYSTEM = (
 _CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
 
 
+def _apply_org_persona(base_system: str, cfg: dict) -> str:
+    """Prepend per-org chatbot name and custom instructions to a base system prompt.
+
+    Org admins can set two keys in app_config:
+      - chatbot_name: display name / persona (e.g. "ACME Support Bot")
+      - chatbot_instructions: freeform behavioural instructions (tone, focus, restrictions)
+
+    The org-specific preamble is placed BEFORE the base system prompt so that
+    retrieval grounding rules (ONLY answer from context, etc.) always take effect
+    even when custom instructions are present.
+    """
+    name = (cfg.get("chatbot_name") or "").strip()
+    instructions = (cfg.get("chatbot_instructions") or "").strip()
+
+    if not name and not instructions:
+        return base_system
+
+    parts: list[str] = []
+    if name:
+        parts.append(f"You are {name}.")
+    if instructions:
+        parts.append(instructions)
+    parts.append(base_system)
+    return "\n\n".join(parts)
+
+
 def _build_history_block(messages: list[dict]) -> str:
     """Return a formatted string of prior conversation turns (excluding the last user message)."""
     prior = messages[:-1][-6:]  # up to 3 exchanges
@@ -503,7 +529,7 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
             prompt = f"Conversation so far:\n{history_block}\n\nUser: {query}"
         else:
             prompt = query
-        system = _CHITCHAT_SYSTEM
+        system = _apply_org_persona(_CHITCHAT_SYSTEM, cfg)
     else:
         context = "\n\n".join(
             f"[Source: {d.get('doc_title') or 'Unknown'} | chunk {d['chunk_id']}]\n{d['text']}"
@@ -516,7 +542,7 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
             )
         else:
             prompt = f"Question: {query}\n\nContext:\n{context}"
-        system = _GENERATOR_SYSTEM
+        system = _apply_org_persona(_GENERATOR_SYSTEM, cfg)
 
     answer, pt, ct = await _stream_llm(prompt, system, cfg, config)
 
