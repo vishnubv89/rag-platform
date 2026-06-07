@@ -181,39 +181,35 @@ function Portal() {
 }
 
 /**
- * Placeholder page for the Dashboards tab.
- * Renders BIEmbed cards for any configured embed URLs sourced from env vars.
- * When no URLs are configured it shows a helpful empty state with setup instructions.
+ * Dashboards tab — shows native platform analytics by default.
+ * If VITE_POWERBI_EMBED_URL or VITE_LOOKER_EMBED_URL are configured at
+ * build time the external BI panels appear below the native dashboard.
  */
 function DashboardsView() {
   const powerBiUrl = import.meta.env.VITE_POWERBI_EMBED_URL ?? "";
   const lookerUrl  = import.meta.env.VITE_LOOKER_EMBED_URL  ?? "";
-
-  if (!powerBiUrl && !lookerUrl) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4" style={{ color: "#9ca3af" }}>
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
-          <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
-        </svg>
-        <div className="text-center">
-          <p className="text-sm font-medium text-gray-500">No dashboards configured</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Set <code className="font-mono bg-gray-100 px-1 rounded">VITE_POWERBI_EMBED_URL</code> or{" "}
-            <code className="font-mono bg-gray-100 px-1 rounded">VITE_LOOKER_EMBED_URL</code> and rebuild the frontend.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const hasBI = powerBiUrl || lookerUrl;
 
   return (
-    <div className="h-full overflow-y-auto p-6 flex flex-col gap-6">
-      {powerBiUrl && (
-        <BIEmbed type="powerbi" embedUrl={powerBiUrl} title="Power BI Report" height="560px" />
-      )}
-      {lookerUrl && (
-        <BIEmbed type="looker" embedUrl={lookerUrl} title="Looker Dashboard" height="560px" />
+    <div className="h-full overflow-y-auto">
+      {/* Native analytics always shown */}
+      <Analytics />
+
+      {/* External BI embeds — only when URLs are configured */}
+      {hasBI && (
+        <div className="px-6 pb-6 flex flex-col gap-6">
+          <div className="flex items-center gap-3 pt-2">
+            <div className="flex-1 h-px" style={{ background: "#e5e7eb" }} />
+            <span className="text-xs text-gray-400 font-medium">External Dashboards</span>
+            <div className="flex-1 h-px" style={{ background: "#e5e7eb" }} />
+          </div>
+          {powerBiUrl && (
+            <BIEmbed type="powerbi" embedUrl={powerBiUrl} title="Power BI Report" height="560px" />
+          )}
+          {lookerUrl && (
+            <BIEmbed type="looker" embedUrl={lookerUrl} title="Looker Dashboard" height="560px" />
+          )}
+        </div>
       )}
     </div>
   );

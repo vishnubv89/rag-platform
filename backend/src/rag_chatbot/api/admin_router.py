@@ -528,10 +528,12 @@ async def analytics_summary(
             where += f" AND created_at <= ${len(params)}"
         row = await conn.fetchrow(
             f"""
-            SELECT COUNT(*)                             AS total_chats,
-                   COALESCE(AVG(latency_ms),0)::INT    AS avg_latency_ms,
-                   COUNT(*) FILTER (WHERE feedback = 1)  AS thumbs_up,
-                   COUNT(*) FILTER (WHERE feedback = -1) AS thumbs_down
+            SELECT COUNT(*)                                          AS total_chats,
+                   COALESCE(AVG(latency_ms),0)::INT                 AS avg_latency_ms,
+                   COALESCE(SUM(prompt_tokens),0)::BIGINT           AS total_prompt_tokens,
+                   COALESCE(SUM(completion_tokens),0)::BIGINT       AS total_completion_tokens,
+                   COUNT(*) FILTER (WHERE feedback = 1)             AS thumbs_up,
+                   COUNT(*) FILTER (WHERE feedback = -1)            AS thumbs_down
             FROM chat_logs WHERE {where}
             """,
             *params,
@@ -595,9 +597,11 @@ async def token_usage(
         oid = await _resolve_org(org_id, conn)
         rows = await conn.fetch(
             """
-            SELECT DATE(created_at) AS day,
-                   COUNT(*)::INT               AS chats,
-                   COALESCE(AVG(latency_ms),0)::INT AS avg_latency_ms
+            SELECT DATE(created_at)                          AS day,
+                   COUNT(*)::INT                             AS chats,
+                   COALESCE(AVG(latency_ms),0)::INT          AS avg_latency_ms,
+                   COALESCE(SUM(prompt_tokens),0)::BIGINT    AS prompt_tokens,
+                   COALESCE(SUM(completion_tokens),0)::BIGINT AS completion_tokens
             FROM   chat_logs
             WHERE  org_id=$1 AND created_at >= now() - ($2 || ' days')::INTERVAL
             GROUP  BY DATE(created_at)
@@ -621,7 +625,12 @@ async def top_sources(
             """
             SELECT d.id, d.title, COUNT(*) AS citation_count
             FROM   chat_logs cl
-            JOIN   LATERAL unnest(cl.source_chunk_ids) AS cid ON TRUE
+            JOIN   LATERAL unnest(
+                       CASE WHEN array_length(cl.source_chunk_ids,1) > 0
+                            THEN cl.source_chunk_ids
+                            ELSE ARRAY[]::BIGINT[]
+                       END
+                   ) AS cid ON TRUE
             JOIN   chunks c ON c.id = cid
             JOIN   documents d ON d.id = c.doc_id
             WHERE  cl.org_id=$1
