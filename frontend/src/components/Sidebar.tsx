@@ -1,6 +1,6 @@
 import { useChatStore } from "../store/chatStore";
 
-type App = "chat" | "knowledge" | "creator" | "dashboards" | "analytics";
+type App = "chat" | "knowledge" | "creator" | "analytics";
 
 interface Props {
   activeApp: App;
@@ -29,14 +29,6 @@ const NAV_APPS: { id: App; label: string; icon: React.ReactNode; soon?: boolean 
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-      </svg>
-    ),
-  },
-  {
-    id: "dashboards", label: "Dashboards",
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
       </svg>
     ),
   },

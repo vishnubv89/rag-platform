@@ -17,13 +17,12 @@ import { useIsMobile } from "./hooks/useIsMobile";
 
 const queryClient = new QueryClient();
 
-type App = "chat" | "knowledge" | "creator" | "dashboards" | "analytics";
+type App = "chat" | "knowledge" | "creator" | "analytics";
 
 const APP_LABELS: Record<App, string> = {
   chat:       "Chat",
   knowledge:  "Knowledge Hub",
   creator:    "Doc Curator",
-  dashboards: "Dashboards",
   analytics:  "Analytics",
 };
 
@@ -39,10 +38,6 @@ const BOTTOM_NAV: { id: App; label: string; icon: React.ReactNode }[] = [
   {
     id: "creator", label: "Curator",
     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>,
-  },
-  {
-    id: "dashboards", label: "Dashboards",
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>,
   },
   {
     id: "analytics", label: "Analytics",
@@ -143,8 +138,7 @@ function Portal() {
           {activeApp === "chat"       && <ChatWindow />}
           {activeApp === "knowledge"  && <KnowledgeHub />}
           {activeApp === "creator"    && <DocCurator />}
-          {activeApp === "dashboards" && <DashboardsView />}
-          {activeApp === "analytics"  && <Analytics />}
+          {activeApp === "analytics"  && <AnalyticsView />}
         </main>
       </div>
 
@@ -181,21 +175,19 @@ function Portal() {
 }
 
 /**
- * Dashboards tab — shows native platform analytics by default.
- * If VITE_POWERBI_EMBED_URL or VITE_LOOKER_EMBED_URL are configured at
- * build time the external BI panels appear below the native dashboard.
+ * Analytics tab — native platform charts + optional external BI embeds.
+ * Set VITE_POWERBI_EMBED_URL or VITE_LOOKER_EMBED_URL at build time to
+ * show Power BI / Looker panels below the native dashboard.
  */
-function DashboardsView() {
+function AnalyticsView() {
   const powerBiUrl = import.meta.env.VITE_POWERBI_EMBED_URL ?? "";
   const lookerUrl  = import.meta.env.VITE_LOOKER_EMBED_URL  ?? "";
   const hasBI = powerBiUrl || lookerUrl;
 
   return (
     <div className="h-full overflow-y-auto">
-      {/* Native analytics always shown */}
       <Analytics />
 
-      {/* External BI embeds — only when URLs are configured */}
       {hasBI && (
         <div className="px-6 pb-6 flex flex-col gap-6">
           <div className="flex items-center gap-3 pt-2">
