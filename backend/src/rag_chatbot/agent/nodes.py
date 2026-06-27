@@ -177,9 +177,14 @@ async def retriever_node(state: AgentState) -> dict:
     org_id = state.get("org_id")
     query = state["query"]
     zitadel_token = state.get("user_zitadel_token")
+    cfg = state.get("llm_config", {})
+
+    acl_uid: int | None = None
+    if cfg.get("feature_doc_acls") == "true":
+        acl_uid = state.get("local_user_id")
 
     # Always run the pgvector search
-    docs = await hybrid_search(query, org_id=org_id)
+    docs = await hybrid_search(query, org_id=org_id, acl_user_id=acl_uid)
 
     # OBO supplement — only when user has a Zitadel token
     if zitadel_token and org_id:
@@ -415,6 +420,7 @@ async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
             "source_chunk_ids": [],
             "sources": [],
             "messages": [{"role": "assistant", "content": answer}],
+            "answer_type": "kb_overview",
         }
 
     doc_list = "\n".join(f"- {r['title']}" for r in rows)
@@ -433,6 +439,7 @@ async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "kb_overview",
     }
 
 
@@ -511,6 +518,7 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "chitchat" if (skip or not docs) else "generator",
     }
 
 
@@ -536,6 +544,7 @@ async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "clarify",
     }
 
 
@@ -606,4 +615,5 @@ async def action_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "action",
     }

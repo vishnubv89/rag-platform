@@ -75,13 +75,38 @@ async def require_user(request: Request) -> dict:
 
     Validation order
     ----------------
-    1. Local HS256 JWT (email+password login) — fast, no network call.
-    2. Zitadel RS256 OIDC JWT — only attempted when ZITADEL_ISSUER is set
+    1. X-Embed-Token header — widget API key; looked up in api_keys table.
+    2. Local HS256 JWT (email+password login) — fast, no network call.
+    3. Zitadel RS256 OIDC JWT — only attempted when ZITADEL_ISSUER is set
        and the local decode fails.  OIDC users are not looked up in the local
        users table; their profile comes from the token claims.
 
     The returned dict always contains: id, email, name, role, org_id, is_active.
     """
+    # --- 0. Widget embed token (X-Embed-Token header) ---
+    embed_token = request.headers.get("X-Embed-Token", "")
+    if embed_token:
+        key_hash = _sha256(embed_token)
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, org_id FROM api_keys WHERE key_hash=$1 AND is_active=TRUE",
+                key_hash,
+            )
+            if row is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid embed token")
+            await conn.execute(
+                "UPDATE api_keys SET last_used=now() WHERE id=$1", row["id"]
+            )
+        return {
+            "id": None,
+            "email": "widget@embed",
+            "name": "Widget",
+            "role": "user",
+            "org_id": row["org_id"],
+            "is_active": True,
+        }
+
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")

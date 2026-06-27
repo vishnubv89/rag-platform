@@ -123,6 +123,68 @@
 </div>
 {% endif %}
 
+{% if config.get('feature_doc_acls') == 'true' %}
+<!-- ── Document Permissions ───────────────────────────────────────────── -->
+<div class="card stat-card mb-4">
+  <div class="card-header fw-semibold"><i class="bi bi-shield-lock me-2"></i>Access Control</div>
+  <div class="card-body">
+
+    <!-- Restricted toggle -->
+    <form method="post" action="/documents/{{ doc.get('id') }}/restrict" class="d-flex align-items-center gap-3 mb-4">
+      <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" role="switch" id="isRestricted"
+               name="is_restricted" value="true"
+               {% if doc.get('is_restricted') %}checked{% endif %}
+               onchange="this.form.submit()">
+        <label class="form-check-label" for="isRestricted">
+          <strong>Restrict this document</strong>
+          <span class="text-muted ms-2 small">Only users listed below can retrieve it in chat.</span>
+        </label>
+      </div>
+    </form>
+
+    {% if doc.get('is_restricted') %}
+    <!-- Permitted users list -->
+    <h6 class="text-muted small fw-semibold mb-2">PERMITTED USERS</h6>
+    {% if permissions %}
+    <ul class="list-group list-group-flush mb-3">
+      {% for p in permissions %}
+      <li class="list-group-item d-flex align-items-center justify-content-between px-0 py-2">
+        <div>
+          <span class="fw-semibold">{{ p.name or p.email }}</span>
+          <span class="text-muted small ms-2">{{ p.email }}</span>
+        </div>
+        <form method="post" action="/documents/{{ doc.get('id') }}/permissions/{{ p.user_id }}/revoke">
+          <button class="btn btn-sm btn-outline-danger">Remove</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted small mb-3">No users have been granted access. Add users below.</p>
+    {% endif %}
+
+    <!-- Grant access -->
+    <form method="post" action="/documents/{{ doc.get('id') }}/permissions/grant" class="d-flex gap-2">
+      <select name="user_id" class="form-select form-select-sm" style="max-width:300px">
+        <option value="">— Select a user to grant access —</option>
+        {% set permitted_ids = permissions | map(attribute='user_id') | list %}
+        {% for u in all_users %}
+        {% if u.id not in permitted_ids %}
+        <option value="{{ u.id }}">{{ u.name or u.email }} ({{ u.email }})</option>
+        {% endif %}
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-primary">Grant Access</button>
+    </form>
+    {% else %}
+    <p class="text-muted small mb-0">Enable restriction above to manage per-user access.</p>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
 <!-- Full-screen modal -->
 <div id="mm-modal"
      onclick="closeMindMap()"

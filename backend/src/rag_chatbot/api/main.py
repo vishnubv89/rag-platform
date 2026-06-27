@@ -159,6 +159,8 @@ async def chat(req: ChatRequest, request: Request):
         "action_result": None,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "answer_type": "generator",
+        "local_user_id": None,
     }
     # Resolve org_id: user's own org > explicit request field > default org
     pool = await get_pool()
@@ -178,7 +180,7 @@ async def chat(req: ChatRequest, request: Request):
     t0 = time.monotonic()
     try:
         from langfuse._client.propagation import _propagate_attributes
-        _state = initial_state | {"llm_config": llm_config, "org_id": org_id}
+        _state = initial_state | {"llm_config": llm_config, "org_id": org_id, "local_user_id": user.get("id")}
         if lf:
             with _propagate_attributes(
                 user_id=str(user.get("id")),
@@ -206,8 +208,8 @@ async def chat(req: ChatRequest, request: Request):
                 INSERT INTO chat_logs
                     (org_id, session_id, user_message, assistant_response,
                      source_chunk_ids, loop_count, latency_ms, user_id,
-                     prompt_tokens, completion_tokens)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                     prompt_tokens, completion_tokens, answer_type)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                 """,
                 org_id,
                 UUID(session_id),
@@ -219,6 +221,7 @@ async def chat(req: ChatRequest, request: Request):
                 user["id"],
                 final_state.get("prompt_tokens", 0),
                 final_state.get("completion_tokens", 0),
+                final_state.get("answer_type", "generator"),
             )
 
     return ChatResponse(
@@ -271,6 +274,8 @@ async def chat_stream(req: ChatRequest, request: Request):
         "action_result": None,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "answer_type": "generator",
+        "local_user_id": user.get("id"),
     }
 
     lf = get_langfuse()
@@ -328,8 +333,8 @@ async def chat_stream(req: ChatRequest, request: Request):
                     INSERT INTO chat_logs
                         (org_id, session_id, user_message, assistant_response,
                          source_chunk_ids, loop_count, latency_ms, user_id,
-                         prompt_tokens, completion_tokens)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                         prompt_tokens, completion_tokens, answer_type)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                     RETURNING id
                     """,
                     org_id,
@@ -342,6 +347,7 @@ async def chat_stream(req: ChatRequest, request: Request):
                     user["id"],
                     final_state.get("prompt_tokens", 0),
                     final_state.get("completion_tokens", 0),
+                    final_state.get("answer_type", "generator"),
                 )
 
         yield f"data: {json.dumps({'type': 'done', 'log_id': log_id, 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
@@ -388,7 +394,6 @@ _SUGGEST_SYSTEM = (
 @limiter.limit("30/minute")
 async def suggest(req: SuggestRequest, request: Request):
     await require_user(request)
-    import asyncio
     pool = await get_pool()
     async with pool.acquire() as conn:
         org_id = req.org_id or await conn.fetchval(
@@ -442,8 +447,6 @@ _FOLLOWUP_SYSTEM = (
 @limiter.limit("60/minute")
 async def chat_followup(req: FollowUpRequest, request: Request):
     await require_user(request)
-    import asyncio
-    import json as _json
     recent = req.messages[-6:]
     history = "\n".join(
         f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent
@@ -570,6 +573,25 @@ async def ingest_file_endpoint(file: UploadFile = File(...)):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/widget/config")
+async def widget_config(org_id: int | None = None):
+    """Public endpoint — returns only display-safe config for the embeddable widget."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        if org_id is None:
+            org_id = await conn.fetchval(
+                "SELECT id FROM organizations WHERE slug='default'"
+            )
+        rows = await conn.fetch(
+            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
+        )
+    cfg = {r["key"]: r["value"] for r in rows}
+    return {
+        "chatbot_name": cfg.get("chatbot_name", "Knowledge Mesh"),
+        "org_id": org_id,
+    }
 
 
 # ── Document topics (user-facing, cached) ────────────────────────────────────

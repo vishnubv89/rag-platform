@@ -11,7 +11,12 @@ CONFIG_KEYS = [
     "embedding_model", "embedding_dim",
     "retrieval_top_k", "grader_max_loops",
     "chunk_size", "chunk_overlap",
+    "feature_content_gap",
+    "feature_widget",
+    "feature_doc_acls",
 ]
+
+FEATURE_FLAGS = ["feature_content_gap", "feature_widget", "feature_doc_acls"]
 
 
 @router.get("/settings")
@@ -56,6 +61,8 @@ async def save_settings(
     chunk_overlap: str = Form(""),
 ):
     org_id_int = int(org_id) if org_id else None
+    form = await request.form()
+
     new_cfg: dict[str, str] = {
         "llm_provider": llm_provider,
         "llm_model": llm_model,
@@ -73,6 +80,10 @@ async def save_settings(
         new_cfg["anthropic_api_key"] = anthropic_api_key
     if nvidia_api_key:
         new_cfg["nvidia_api_key"] = nvidia_api_key
+
+    # Feature flags: checkbox sends "true" when checked, absent when unchecked
+    for flag in FEATURE_FLAGS:
+        new_cfg[flag] = "true" if form.get(flag) == "true" else "false"
 
     await client.update_config(
         org_id=org_id_int, cfg={k: v for k, v in new_cfg.items() if v}

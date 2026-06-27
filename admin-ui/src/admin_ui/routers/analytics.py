@@ -18,8 +18,13 @@ async def analytics_page(
         logs = await client.list_logs(org_id=org_id, page=page, from_dt=from_dt, to_dt=to_dt)
         usage = await client.token_usage(org_id=org_id, days=30)
         orgs = await client.list_orgs()
+        cfg_resp = await client.get_config(org_id=org_id)
+        cfg = cfg_resp.get("config", {})
+        gaps: list = []
+        if cfg.get("feature_content_gap") == "true":
+            gaps = await client.content_gaps(org_id=org_id, days=30)
     except Exception as e:
-        summary, logs, usage, orgs = {}, {"items": [], "total": 0}, [], []
+        summary, logs, usage, orgs, cfg, gaps = {}, {"items": [], "total": 0}, [], [], {}, []
         request.state.error = str(e)
 
     return request.app.state.templates.TemplateResponse(
@@ -35,5 +40,7 @@ async def analytics_page(
             "to_dt": to_dt or "",
             "page": page,
             "active_page": "analytics",
+            "config": cfg,
+            "gaps": gaps,
         },
     )

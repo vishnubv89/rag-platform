@@ -18,6 +18,68 @@
 <form method="post" action="/settings">
   <input type="hidden" name="org_id" value="{{ active_org_id or '' }}">
 
+  <!-- ── Platform Features ────────────────────────────────────────── -->
+  <div class="card stat-card mb-3">
+    <div class="card-header fw-semibold"><i class="bi bi-toggles me-2"></i>Platform Features</div>
+    <div class="card-body">
+      <div class="row g-3">
+
+        <div class="col-12">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureContentGap"
+                   name="feature_content_gap" value="true"
+                   {% if config.get('feature_content_gap') == 'true' %}checked{% endif %}>
+            <label class="form-check-label" for="featureContentGap">
+              <strong>Content Gap Detection</strong>
+              <span class="text-muted ms-2 small">Track unanswered queries and surface knowledge gaps in Analytics.</span>
+            </label>
+          </div>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureWidget"
+                   name="feature_widget" value="true"
+                   {% if config.get('feature_widget') == 'true' %}checked{% endif %}>
+            <label class="form-check-label" for="featureWidget">
+              <strong>Embeddable Chat Widget</strong>
+              <span class="text-muted ms-2 small">Generate a &lt;script&gt; snippet to embed the chatbot on any page. Embed code shown below when enabled.</span>
+            </label>
+          </div>
+
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureDocAcls"
+                   name="feature_doc_acls" value="true"
+                   {% if config.get('feature_doc_acls') == 'true' %}checked{% endif %}>
+            <label class="form-check-label" for="featureDocAcls">
+              <strong>Document-level ACLs</strong>
+              <span class="text-muted ms-2 small">Restrict individual documents to specific users. Permissions tab appears on Document detail pages.</span>
+            </label>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  {% if config.get('feature_widget') == 'true' %}
+  <!-- ── Widget Embed Snippet ──────────────────────────────────────── -->
+  <div class="card stat-card mb-3 border-primary">
+    <div class="card-header fw-semibold text-primary"><i class="bi bi-code-slash me-2"></i>Embed Code</div>
+    <div class="card-body">
+      <p class="text-muted small mb-2">Drop this tag into any HTML page to embed the Knowledge Mesh chat widget. Replace <code>YOUR_API_KEY</code> with an API key from the <a href="/orgs">Organizations</a> page.</p>
+      <pre id="embedCode" class="bg-dark text-light p-3 rounded small" style="white-space:pre-wrap;word-break:break-all;">&lt;script
+  src="{{ request.base_url }}widget.js"
+  data-org-id="{{ active_org_id or '' }}"
+  data-api-key="YOUR_API_KEY"
+  data-title="{{ config.get('chatbot_name', 'Knowledge Mesh') }}"
+&gt;&lt;/script&gt;</pre>
+      <button type="button" class="btn btn-sm btn-outline-secondary mt-2"
+              onclick="navigator.clipboard.writeText(document.getElementById('embedCode').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})">
+        Copy
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- ── LLM Provider ─────────────────────────────────────────────── -->
   <div class="card stat-card mb-3">
     <div class="card-header fw-semibold">LLM Provider</div>

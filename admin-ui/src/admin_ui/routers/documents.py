@@ -30,26 +30,66 @@ async def list_documents(request: Request, page: int = 1):
 
 @router.get("/documents/{doc_id}")
 async def document_detail(request: Request, doc_id: int, refresh: int = 0):
+    org_id = request.state.active_org_id
     try:
         doc = await client.get_doc(doc_id)
     except Exception as e:
         doc = {}
         request.state.error = str(e)
 
-    # Topics are fetched lazily — if not yet cached this triggers LLM extraction.
-    # Pass refresh=True when the user clicked "Refresh topics".
-    # On error (e.g. no chunks yet) we just show an empty state.
     try:
         topics_data = await client.get_doc_topics(doc_id, refresh=bool(refresh))
         topics = topics_data.get("topics", [])
     except Exception:
         topics = []
 
+    cfg: dict = {}
+    permissions: list = []
+    try:
+        cfg_resp = await client.get_config(org_id=org_id)
+        cfg = cfg_resp.get("config", {})
+        if cfg.get("feature_doc_acls") == "true":
+            permissions = await client.get_doc_permissions(doc_id)
+    except Exception:
+        pass
+
+    all_users: list = []
+    try:
+        if cfg.get("feature_doc_acls") == "true":
+            all_users = await client.list_users(org_id=org_id)
+    except Exception:
+        pass
+
     return request.app.state.templates.TemplateResponse(
         request,
         "document_detail.html",
-        {"doc": doc, "topics": topics, "active_page": "documents"},
+        {
+            "doc": doc,
+            "topics": topics,
+            "active_page": "documents",
+            "config": cfg,
+            "permissions": permissions,
+            "all_users": all_users,
+        },
     )
+
+
+@router.post("/documents/{doc_id}/restrict")
+async def toggle_doc_restricted(doc_id: int, is_restricted: str = Form("false")):
+    await client.set_doc_restricted(doc_id, is_restricted == "true")
+    return RedirectResponse(f"/documents/{doc_id}?saved=1", status_code=303)
+
+
+@router.post("/documents/{doc_id}/permissions/grant")
+async def grant_permission(doc_id: int, user_id: str = Form(...)):
+    await client.grant_doc_permission(doc_id, int(user_id))
+    return RedirectResponse(f"/documents/{doc_id}", status_code=303)
+
+
+@router.post("/documents/{doc_id}/permissions/{user_id}/revoke")
+async def revoke_permission(doc_id: int, user_id: int):
+    await client.revoke_doc_permission(doc_id, user_id)
+    return RedirectResponse(f"/documents/{doc_id}", status_code=303)
 
 
 @router.post("/documents/{doc_id}/delete")
