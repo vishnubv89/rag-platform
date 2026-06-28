@@ -68,7 +68,7 @@ services:
     container_name: rag_admin_ui
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       BACKEND_URL: http://backend:8000
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-change-me}
