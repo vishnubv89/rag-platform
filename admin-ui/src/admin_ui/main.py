@@ -60,6 +60,15 @@ async def attach_globals(request: Request, call_next):
     except Exception:
         request.state.all_orgs = []
 
+    try:
+        if request.state.active_org_id:
+            cfg_resp = await api.get_config(org_id=request.state.active_org_id)
+            request.state.feature_flags = cfg_resp.get("config", {})
+        else:
+            request.state.feature_flags = {}
+    except Exception:
+        request.state.feature_flags = {}
+
     response = await call_next(request)
 
     # Sync URL org param into cookie so it persists for future navigations

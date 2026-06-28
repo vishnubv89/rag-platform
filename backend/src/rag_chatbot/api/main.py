@@ -404,6 +404,9 @@ async def suggest(req: SuggestRequest, request: Request):
         ) if org_id else []
     llm_config = {r["key"]: r["value"] for r in rows}
 
+    if llm_config.get("feature_suggest") == "false":
+        raise HTTPException(status_code=403, detail="Doc Creator suggestions are disabled for this organisation.")
+
     query = req.context[-800:].strip()
     try:
         docs = await hybrid_search(query, top_k=5, org_id=org_id)
@@ -447,6 +450,14 @@ _FOLLOWUP_SYSTEM = (
 @limiter.limit("60/minute")
 async def chat_followup(req: FollowUpRequest, request: Request):
     await require_user(request)
+    if req.org_id:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT key, value FROM app_config WHERE org_id=$1", req.org_id
+            )
+        if {r["key"]: r["value"] for r in rows}.get("feature_followup") == "false":
+            return FollowUpResponse(suggestions=[])
     recent = req.messages[-6:]
     history = "\n".join(
         f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent

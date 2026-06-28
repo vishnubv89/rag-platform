@@ -45,13 +45,69 @@
             </label>
           </div>
 
-          <div class="form-check form-switch">
+          <div class="form-check form-switch mb-2">
             <input class="form-check-input" type="checkbox" role="switch" id="featureDocAcls"
                    name="feature_doc_acls" value="true"
                    {% if config.get('feature_doc_acls') == 'true' %}checked{% endif %}>
             <label class="form-check-label" for="featureDocAcls">
               <strong>Document-level ACLs</strong>
               <span class="text-muted ms-2 small">Restrict individual documents to specific users. Permissions tab appears on Document detail pages.</span>
+            </label>
+          </div>
+
+          <hr class="my-3">
+          <p class="text-muted small mb-2 fw-semibold">Agent Capabilities <span class="badge bg-secondary ms-1">on by default</span></p>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureActions"
+                   name="feature_actions" value="true"
+                   {% if config.get('feature_actions') != 'false' %}checked{% endif %}>
+            <label class="form-check-label" for="featureActions">
+              <strong>Action Routing</strong>
+              <span class="text-muted ms-2 small">Enable ServiceNow, Jira, Slack and Teams actions in the agent. Disable to restrict the chatbot to Q&amp;A only.</span>
+            </label>
+          </div>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureFollowup"
+                   name="feature_followup" value="true"
+                   {% if config.get('feature_followup') != 'false' %}checked{% endif %}>
+            <label class="form-check-label" for="featureFollowup">
+              <strong>Follow-up Question Suggestions</strong>
+              <span class="text-muted ms-2 small">Generate 3 suggested follow-up questions after each chat response. Disable to reduce token usage.</span>
+            </label>
+          </div>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureSuggest"
+                   name="feature_suggest" value="true"
+                   {% if config.get('feature_suggest') != 'false' %}checked{% endif %}>
+            <label class="form-check-label" for="featureSuggest">
+              <strong>Doc Creator AI Suggestions</strong>
+              <span class="text-muted ms-2 small">Allow the Doc Creator to suggest next paragraphs based on the knowledge base. Disable to make Doc Creator text-only.</span>
+            </label>
+          </div>
+
+          <hr class="my-3">
+          <p class="text-muted small mb-2 fw-semibold">Admin UI Sections <span class="badge bg-secondary ms-1">on by default</span></p>
+
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureKnowledgeHealth"
+                   name="feature_knowledge_health" value="true"
+                   {% if config.get('feature_knowledge_health') != 'false' %}checked{% endif %}>
+            <label class="form-check-label" for="featureKnowledgeHealth">
+              <strong>Knowledge Health</strong>
+              <span class="text-muted ms-2 small">Show the Knowledge Health section (conflict detection, stale docs) in the sidebar.</span>
+            </label>
+          </div>
+
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="featureAuditLog"
+                   name="feature_audit_log" value="true"
+                   {% if config.get('feature_audit_log') != 'false' %}checked{% endif %}>
+            <label class="form-check-label" for="featureAuditLog">
+              <strong>Audit Log</strong>
+              <span class="text-muted ms-2 small">Show the Audit Log section in the sidebar.</span>
             </label>
           </div>
         </div>

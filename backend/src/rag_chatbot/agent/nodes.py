@@ -137,11 +137,13 @@ async def intent_node(state: AgentState) -> dict:
     is_chitchat = bool(_CHITCHAT_RE.match(query))
     is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat
 
+    cfg = state.get("llm_config", {})
     action_intent = None
-    for action_name, pattern in _ACTION_PATTERNS:
-        if pattern.search(query):
-            action_intent = action_name
-            break
+    if cfg.get("feature_actions") != "false":
+        for action_name, pattern in _ACTION_PATTERNS:
+            if pattern.search(query):
+                action_intent = action_name
+                break
 
     skip = is_chitchat or is_overview or (action_intent is not None)
     _log.info(
