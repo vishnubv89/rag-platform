@@ -481,12 +481,13 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
 
     history_block = _build_history_block(messages)
 
+    custom_instruction = (state.get("system_instruction") or "").strip()
     if skip or not docs:
         if history_block:
             prompt = f"Conversation so far:\n{history_block}\n\nUser: {query}"
         else:
             prompt = query
-        system = _CHITCHAT_SYSTEM
+        system = custom_instruction if custom_instruction else _CHITCHAT_SYSTEM
     else:
         context = "\n\n".join(
             f"[Source: {d.get('doc_title') or 'Unknown'} | chunk {d['chunk_id']}]\n{d['text']}"
@@ -499,7 +500,9 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
             )
         else:
             prompt = f"Question: {query}\n\nContext:\n{context}"
-        system = _GENERATOR_SYSTEM
+        # Custom instruction prepended to base system prompt so RAG grounding rules always apply
+        system = (f"{custom_instruction}\n\n{_GENERATOR_SYSTEM}" if custom_instruction
+                  else _GENERATOR_SYSTEM)
 
     answer, pt, ct = await _stream_llm(prompt, system, cfg, config)
 

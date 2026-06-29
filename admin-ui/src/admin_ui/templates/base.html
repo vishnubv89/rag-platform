@@ -95,6 +95,7 @@
       <a class="nav-link {% if active_page=='settings' %}active{% endif %}" href="/settings"><i class="bi bi-sliders me-2"></i>Settings</a>
       <a class="nav-link {% if active_page=='orgs' %}active{% endif %}" href="/orgs"><i class="bi bi-building me-2"></i>Organizations</a>
       <a class="nav-link {% if active_page=='analytics' %}active{% endif %}" href="/analytics"><i class="bi bi-bar-chart me-2"></i>Analytics</a>
+      <a class="nav-link {% if active_page=='chatbots' %}active{% endif %}" href="/chatbots"><i class="bi bi-robot me-2"></i>Chatbots</a>
       <hr class="border-secondary mx-3 my-2">
       <a class="nav-link {% if active_page=='connectors' %}active{% endif %}" href="/connectors"><i class="bi bi-plug me-2"></i>Connectors</a>
       {% if not request.state.active_org_id or request.state.feature_flags.get('feature_knowledge_health') != 'false' %}

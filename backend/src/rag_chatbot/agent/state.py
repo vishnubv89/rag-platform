@@ -66,3 +66,7 @@ class AgentState(TypedDict):
     # When set and feature_doc_acls is enabled, retrieval filters out restricted
     # documents that the user has no explicit grant for.
     local_user_id: int | None
+
+    # Custom system instruction injected by a chatbot embed token.
+    # When set, generator_node uses this instead of the hardcoded _GENERATOR_SYSTEM.
+    system_instruction: str | None

@@ -161,6 +161,7 @@ async def chat(req: ChatRequest, request: Request):
         "completion_tokens": 0,
         "answer_type": "generator",
         "local_user_id": None,
+        "system_instruction": user.get("system_instruction", ""),
     }
     # Resolve org_id: user's own org > explicit request field > default org
     pool = await get_pool()
@@ -276,6 +277,7 @@ async def chat_stream(req: ChatRequest, request: Request):
         "completion_tokens": 0,
         "answer_type": "generator",
         "local_user_id": user.get("id"),
+        "system_instruction": user.get("system_instruction", ""),
     }
 
     lf = get_langfuse()
@@ -590,6 +592,7 @@ async def health():
 async def widget_config(org_id: int | None = None):
     """Public endpoint — returns only display-safe config for the embeddable widget."""
     pool = await get_pool()
+    import hashlib as _hl
     async with pool.acquire() as conn:
         if org_id is None:
             org_id = await conn.fetchval(

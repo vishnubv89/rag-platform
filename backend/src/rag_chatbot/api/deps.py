@@ -89,6 +89,26 @@ async def require_user(request: Request) -> dict:
         key_hash = _sha256(embed_token)
         pool = await get_pool()
         async with pool.acquire() as conn:
+            # Check named chatbot first (supports per-chatbot system instructions)
+            row = await conn.fetchrow(
+                "SELECT id, org_id, name, system_instruction "
+                "FROM chatbots WHERE key_hash=$1 AND is_active=TRUE",
+                key_hash,
+            )
+            if row is not None:
+                await conn.execute(
+                    "UPDATE chatbots SET last_used=now() WHERE id=$1", row["id"]
+                )
+                return {
+                    "id": None,
+                    "email": "widget@embed",
+                    "name": row["name"],
+                    "role": "user",
+                    "org_id": row["org_id"],
+                    "is_active": True,
+                    "system_instruction": row["system_instruction"] or "",
+                }
+            # Fall back to legacy api_keys embed
             row = await conn.fetchrow(
                 "SELECT id, org_id FROM api_keys WHERE key_hash=$1 AND is_active=TRUE",
                 key_hash,
@@ -105,6 +125,7 @@ async def require_user(request: Request) -> dict:
             "role": "user",
             "org_id": row["org_id"],
             "is_active": True,
+            "system_instruction": "",
         }
 
     auth = request.headers.get("Authorization", "")

@@ -9,7 +9,7 @@ from admin_ui.config import settings
 from admin_ui.routers import (
     auth_router, dashboard, documents,
     settings as settings_router, orgs,
-    analytics, connectors, knowledge, users, audit,
+    analytics, connectors, knowledge, users, audit, chatbots,
 )
 
 app = FastAPI(title="RAG Admin UI", docs_url=None, redoc_url=None)
@@ -28,6 +28,7 @@ app.include_router(connectors.router)
 app.include_router(knowledge.router)
 app.include_router(users.router)
 app.include_router(audit.router)
+app.include_router(chatbots.router)
 
 # Public paths that bypass auth check
 _PUBLIC = {"/login", "/logout"}

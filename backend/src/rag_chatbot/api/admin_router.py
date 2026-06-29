@@ -1237,3 +1237,77 @@ async def delete_sso_role(org_id: int, email: str):
         )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="SSO role override not found")
+
+
+# ─────────────────────────────────────────────
+# Chatbots (per-org embed widgets with custom system instructions)
+# ─────────────────────────────────────────────
+
+class ChatbotCreate(BaseModel):
+    name: str
+    description: str = ""
+    system_instruction: str = ""
+    welcome_message: str = ""
+
+
+class ChatbotPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    system_instruction: str | None = None
+    welcome_message: str | None = None
+    is_active: bool | None = None
+
+
+@router.get("/orgs/{org_id}/chatbots")
+async def list_chatbots(org_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, name, description, system_instruction, welcome_message,
+                      is_active, created_at, last_used
+               FROM chatbots WHERE org_id=$1 ORDER BY id""",
+            org_id,
+        )
+    return [dict(r) for r in rows]
+
+
+@router.post("/orgs/{org_id}/chatbots", status_code=201)
+async def create_chatbot(org_id: int, body: ChatbotCreate):
+    raw = "cb_" + secrets.token_urlsafe(32)
+    key_hash = _sha256(raw)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """INSERT INTO chatbots
+                   (org_id, name, description, system_instruction, welcome_message, key_hash)
+               VALUES ($1,$2,$3,$4,$5,$6)
+               RETURNING id, name""",
+            org_id, body.name, body.description,
+            body.system_instruction, body.welcome_message, key_hash,
+        )
+    return {**dict(row), "key": raw, "note": "This is the only time the embed token is shown."}
+
+
+@router.patch("/orgs/{org_id}/chatbots/{chatbot_id}")
+async def patch_chatbot(org_id: int, chatbot_id: int, body: ChatbotPatch):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
+    values = list(updates.values())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE chatbots SET {set_clause} WHERE id=$1 AND org_id={org_id}",
+            chatbot_id, *values,
+        )
+    return {"id": chatbot_id, **updates}
+
+
+@router.delete("/orgs/{org_id}/chatbots/{chatbot_id}", status_code=204)
+async def delete_chatbot(org_id: int, chatbot_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM chatbots WHERE id=$1 AND org_id=$2", chatbot_id, org_id
+        )

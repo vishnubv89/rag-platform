@@ -117,6 +117,25 @@ async def revoke_key(org_id: int, key_id: int) -> None:
     await _delete(f"/admin/orgs/{org_id}/keys/{key_id}")
 
 
+# ── Chatbots ──────────────────────────────────────────────────────────────────
+
+async def list_chatbots(org_id: int) -> list:
+    return await _get(f"/admin/orgs/{org_id}/chatbots")
+
+async def create_chatbot(org_id: int, name: str, description: str,
+                         system_instruction: str, welcome_message: str) -> dict:
+    return await _post(f"/admin/orgs/{org_id}/chatbots", json={
+        "name": name, "description": description,
+        "system_instruction": system_instruction, "welcome_message": welcome_message,
+    })
+
+async def patch_chatbot(org_id: int, chatbot_id: int, **fields) -> dict:
+    return await _patch(f"/admin/orgs/{org_id}/chatbots/{chatbot_id}", json=fields)
+
+async def delete_chatbot(org_id: int, chatbot_id: int) -> None:
+    await _delete(f"/admin/orgs/{org_id}/chatbots/{chatbot_id}")
+
+
 # ── SSO Roles ─────────────────────────────────────────────────────────────────
 
 async def list_sso_roles(org_id: int) -> list:
