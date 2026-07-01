@@ -30,17 +30,17 @@ export function MessageInput({ onSend, loading }: Props) {
   return (
     <div
       className="flex items-end gap-2.5 px-4 py-3"
-      style={{ borderTop: "1px solid #e8e8ea", background: "#ffffff" }}
+      style={{ borderTop: "1px solid var(--cds-border)", background: "var(--cds-surface)" }}
     >
       <textarea
         ref={textareaRef}
         className="flex-1 resize-none text-sm focus:outline-none disabled:opacity-50"
         style={{
-          background: "#f7f7f8",
-          border: "1px solid #e8e8ea",
+          background: "var(--cds-surface-tint)",
+          border: "1px solid var(--cds-border)",
           borderRadius: 12,
           padding: "10px 14px",
-          color: "#111827",
+          color: "var(--cds-text-primary)",
           lineHeight: 1.5,
           fontFamily: "inherit",
         }}
@@ -51,21 +51,21 @@ export function MessageInput({ onSend, loading }: Props) {
         onKeyDown={onKeyDown}
         onInput={onInput}
         disabled={loading}
-        onFocus={(e) => { (e.currentTarget as HTMLTextAreaElement).style.borderColor = "#2563eb"; (e.currentTarget as HTMLTextAreaElement).style.boxShadow = "0 0 0 3px rgba(37,99,235,.08)"; }}
-        onBlur={(e) => { (e.currentTarget as HTMLTextAreaElement).style.borderColor = "#e8e8ea"; (e.currentTarget as HTMLTextAreaElement).style.boxShadow = "none"; }}
+        onFocus={(e) => { (e.currentTarget as HTMLTextAreaElement).style.borderColor = "var(--cds-accent)"; (e.currentTarget as HTMLTextAreaElement).style.boxShadow = "0 0 0 3px var(--cds-accent-soft)"; }}
+        onBlur={(e) => { (e.currentTarget as HTMLTextAreaElement).style.borderColor = "var(--cds-border)"; (e.currentTarget as HTMLTextAreaElement).style.boxShadow = "none"; }}
       />
       <button
         onClick={submit}
         disabled={loading || !text.trim()}
         className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-colors"
-        style={{ background: loading || !text.trim() ? "#e5e7eb" : "#2563eb" }}
+        style={{ background: loading || !text.trim() ? "var(--cds-surface-tint-hover)" : "var(--cds-accent)" }}
       >
         {loading ? (
-          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={loading ? "#9ca3af" : "white"} strokeWidth="2">
+          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={loading ? "var(--cds-text-muted)" : "white"} strokeWidth="2">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
           </svg>
         ) : (
-          <svg className="w-4 h-4" fill="none" stroke={!text.trim() ? "#9ca3af" : "white"} viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="w-4 h-4" fill="none" stroke={!text.trim() ? "var(--cds-text-muted)" : "white"} viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         )}

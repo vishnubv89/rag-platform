@@ -26,7 +26,7 @@ export function OrgSelector() {
     return (
       <span
         className="text-xs px-2.5 py-1.5 rounded-lg"
-        style={{ background: "#f3f4f6", color: "#374151", border: "1px solid #e8e8ea" }}
+        style={{ background: "var(--cds-surface-tint)", color: "var(--cds-text-secondary)", border: "1px solid var(--cds-border)" }}
       >
         {activeOrg.name}
       </span>
@@ -39,9 +39,9 @@ export function OrgSelector() {
     <select
       className="text-xs border rounded-lg px-2.5 py-1.5 focus:outline-none"
       style={{
-        background: "#f7f7f8",
-        border: "1px solid #e8e8ea",
-        color: "#374151",
+        background: "var(--cds-surface-tint)",
+        border: "1px solid var(--cds-border)",
+        color: "var(--cds-text-secondary)",
         fontFamily: "inherit",
       }}
       value={activeOrg?.id ?? ""}
@@ -49,8 +49,8 @@ export function OrgSelector() {
         const org = orgs.find((o) => o.id === Number(e.target.value)) ?? null;
         setOrg(org);
       }}
-      onFocus={(e) => { (e.currentTarget as HTMLSelectElement).style.borderColor = "#2563eb"; }}
-      onBlur={(e) => { (e.currentTarget as HTMLSelectElement).style.borderColor = "#e8e8ea"; }}
+      onFocus={(e) => { (e.currentTarget as HTMLSelectElement).style.borderColor = "var(--cds-accent)"; }}
+      onBlur={(e) => { (e.currentTarget as HTMLSelectElement).style.borderColor = "var(--cds-border)"; }}
     >
       <option value="">Default org</option>
       {orgs.map((o) => (

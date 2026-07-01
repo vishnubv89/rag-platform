@@ -90,14 +90,14 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
         style={{ width: "100%", maxWidth: 480, maxHeight: "90vh", overflow: "hidden" }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4" style={{ borderBottom: "1px solid #e8e8ea" }}>
+        <div className="flex items-center justify-between px-6 pt-6 pb-4" style={{ borderBottom: "1px solid var(--cds-border)" }}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "#2563eb" }}>
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "var(--cds-accent)" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
               </svg>
             </div>
-            <span className="font-semibold text-gray-900">Setup wizard</span>
+            <span className="font-semibold" style={{ color: "var(--cds-text-primary)" }}>Setup wizard</span>
           </div>
           {/* Step indicators */}
           <div className="flex items-center gap-1.5">
@@ -108,7 +108,7 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
                 style={{
                   width: step === s ? 20 : 8,
                   height: 8,
-                  background: step >= s ? "#2563eb" : "#e5e7eb",
+                  background: step >= s ? "var(--cds-accent)" : "var(--cds-surface-tint-hover)",
                 }}
               />
             ))}
@@ -120,8 +120,8 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
           {step === 1 && (
             <div className="flex flex-col gap-4">
               <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-1">Welcome to RAG Platform</h2>
-                <p className="text-sm text-gray-500">
+                <h2 className="text-xl font-bold mb-1" style={{ color: "var(--cds-text-primary)" }}>Welcome to RAG Platform</h2>
+                <p className="text-sm" style={{ color: "var(--cds-text-muted)" }}>
                   Let's get your AI assistant up and running. This takes about 2 minutes.
                 </p>
               </div>
@@ -131,11 +131,11 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
                   { icon: "📚", title: "Connect your knowledge", desc: "Upload docs or connect ServiceNow, Confluence, and more" },
                   { icon: "💬", title: "Start chatting", desc: "Ask questions, get answers grounded in your data" },
                 ].map((item) => (
-                  <div key={item.title} className="flex items-start gap-3 p-3 rounded-xl" style={{ background: "#f8faff", border: "1px solid #e0eaff" }}>
+                  <div key={item.title} className="flex items-start gap-3 p-3 rounded-xl" style={{ background: "var(--cds-accent-tint)", border: "1px solid #F5C4B3" }}>
                     <span className="text-xl">{item.icon}</span>
                     <div>
-                      <div className="text-sm font-semibold text-gray-800">{item.title}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">{item.desc}</div>
+                      <div className="text-sm font-semibold" style={{ color: "var(--cds-text-primary)" }}>{item.title}</div>
+                      <div className="text-xs mt-0.5" style={{ color: "var(--cds-text-muted)" }}>{item.desc}</div>
                     </div>
                   </div>
                 ))}
@@ -146,8 +146,8 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
           {step === 2 && (
             <div className="flex flex-col gap-4">
               <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-1">Choose your LLM provider</h2>
-                <p className="text-sm text-gray-500">This drives chat, grading, and document suggestions.</p>
+                <h2 className="text-xl font-bold mb-1" style={{ color: "var(--cds-text-primary)" }}>Choose your LLM provider</h2>
+                <p className="text-sm" style={{ color: "var(--cds-text-muted)" }}>This drives chat, grading, and document suggestions.</p>
               </div>
 
               {/* Provider tabs */}
@@ -158,9 +158,9 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
                     onClick={() => handleProviderChange(p)}
                     className="flex-1 py-2 text-xs font-medium rounded-lg border transition-all"
                     style={{
-                      background: provider === p ? "#2563eb" : "#f9fafb",
-                      color: provider === p ? "white" : "#374151",
-                      borderColor: provider === p ? "#2563eb" : "#e5e7eb",
+                      background: provider === p ? "var(--cds-accent)" : "var(--cds-surface-tint)",
+                      color: provider === p ? "white" : "var(--cds-text-secondary)",
+                      borderColor: provider === p ? "var(--cds-accent)" : "var(--cds-border)",
                     }}
                   >
                     {p === "gemini" ? "Gemini" : p === "anthropic" ? "Anthropic" : "NVIDIA"}
@@ -170,14 +170,14 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
 
               {/* Model field */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Model</label>
+                <label className="block text-xs font-semibold mb-1" style={{ color: "var(--cds-text-secondary)" }}>Model</label>
                 <input
-                  className="w-full text-sm px-3 py-2 rounded-lg border focus:outline-none focus:border-blue-500"
-                  style={{ border: "1px solid #d1d5db" }}
+                  className="w-full text-sm px-3 py-2 rounded-lg border focus:outline-none"
+                  style={{ border: "1px solid var(--cds-border)" }}
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                 />
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs mt-1" style={{ color: "var(--cds-text-muted)" }}>
                   {provider === "gemini" && "e.g. gemini-2.0-flash, gemini-1.5-pro, gemini-2.5-pro"}
                   {provider === "anthropic" && "e.g. claude-sonnet-4-6, claude-opus-4-7, claude-haiku-4-5-20251001"}
                   {provider === "nvidia" && "e.g. meta/llama-3.2-3b-instruct, meta/llama-3.1-405b-instruct"}
@@ -187,13 +187,13 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
               {/* API key field (not Gemini) */}
               {PROVIDER_KEY_FIELD[provider] && (
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--cds-text-secondary)" }}>
                     {PROVIDER_KEY_LABEL[provider]}
                   </label>
                   <input
                     type="password"
-                    className="w-full text-sm px-3 py-2 rounded-lg border focus:outline-none focus:border-blue-500 font-mono"
-                    style={{ border: "1px solid #d1d5db" }}
+                    className="w-full text-sm px-3 py-2 rounded-lg border focus:outline-none font-mono"
+                    style={{ border: "1px solid var(--cds-border)" }}
                     placeholder={PROVIDER_KEY_PLACEHOLDER[provider]}
                     value={apiKey}
                     onChange={(e) => { setApiKey(e.target.value); setError(""); }}
@@ -205,19 +205,19 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
               {/* NVIDIA base URL */}
               {provider === "nvidia" && (
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">API Base URL</label>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--cds-text-secondary)" }}>API Base URL</label>
                   <input
-                    className="w-full text-sm px-3 py-2 rounded-lg border focus:outline-none focus:border-blue-500 font-mono"
-                    style={{ border: "1px solid #d1d5db" }}
+                    className="w-full text-sm px-3 py-2 rounded-lg border focus:outline-none font-mono"
+                    style={{ border: "1px solid var(--cds-border)" }}
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
                   />
-                  <p className="text-xs text-gray-400 mt-1">Works with OpenAI, Groq, Together AI, Ollama, and any OpenAI-compatible endpoint.</p>
+                  <p className="text-xs mt-1" style={{ color: "var(--cds-text-muted)" }}>Works with OpenAI, Groq, Together AI, Ollama, and any OpenAI-compatible endpoint.</p>
                 </div>
               )}
 
               {provider === "gemini" && (
-                <div className="text-xs text-gray-500 p-3 rounded-lg" style={{ background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                <div className="text-xs p-3 rounded-lg" style={{ color: "var(--cds-text-secondary)", background: "#EAF3DE", border: "1px solid #C0DD97" }}>
                   Gemini uses the <code className="font-mono text-xs">GOOGLE_API_KEY</code> environment variable set on your server — no key needed here.
                 </div>
               )}
@@ -228,26 +228,26 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
 
           {step === 3 && (
             <div className="flex flex-col items-center gap-4 py-4 text-center">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "#f0fdf4" }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "#EAF3DE" }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3B6D11" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-900 mb-1">You're all set!</h2>
-                <p className="text-sm text-gray-500">
+                <h2 className="text-xl font-bold mb-1" style={{ color: "var(--cds-text-primary)" }}>You're all set!</h2>
+                <p className="text-sm" style={{ color: "var(--cds-text-muted)" }}>
                   {PROVIDER_LABELS[provider]} is configured. Head to Chat to ask your first question, or visit Knowledge Hub to upload documents.
                 </p>
               </div>
-              <div className="text-xs text-gray-400 p-3 rounded-lg w-full text-left" style={{ background: "#f8f9fa", border: "1px solid #e9ecef" }}>
-                <span className="font-semibold text-gray-600">Tip:</span> Connect a data source like ServiceNow or Confluence in the Admin UI to ground answers in your team's knowledge.
+              <div className="text-xs p-3 rounded-lg w-full text-left" style={{ color: "var(--cds-text-muted)", background: "var(--cds-surface-tint)", border: "1px solid var(--cds-border)" }}>
+                <span className="font-semibold" style={{ color: "var(--cds-text-secondary)" }}>Tip:</span> Connect a data source like ServiceNow or Confluence in the Admin UI to ground answers in your team's knowledge.
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4" style={{ borderTop: "1px solid #e8e8ea" }}>
+        <div className="flex items-center justify-between px-6 py-4" style={{ borderTop: "1px solid var(--cds-border)" }}>
           {step === 1 && (
             <>
               <button
@@ -259,7 +259,7 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
               <button
                 onClick={() => setStep(2)}
                 className="text-sm font-medium px-5 py-2 rounded-lg text-white transition-colors"
-                style={{ background: "#2563eb" }}
+                style={{ background: "var(--cds-accent)" }}
               >
                 Get started →
               </button>
@@ -277,7 +277,7 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
                 onClick={handleSave}
                 disabled={saving}
                 className="text-sm font-medium px-5 py-2 rounded-lg text-white transition-colors disabled:opacity-60"
-                style={{ background: "#2563eb" }}
+                style={{ background: "var(--cds-accent)" }}
               >
                 {saving ? "Saving…" : "Save & continue →"}
               </button>
@@ -287,7 +287,7 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
             <button
               onClick={finish}
               className="ml-auto text-sm font-medium px-5 py-2 rounded-lg text-white"
-              style={{ background: "#2563eb" }}
+              style={{ background: "var(--cds-accent)" }}
             >
               Start chatting →
             </button>

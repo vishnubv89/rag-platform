@@ -99,15 +99,15 @@ export function DocCreator() {
   const wc = wordCount(content);
 
   return (
-    <div className="flex h-full" style={{ background: "#fafafa" }}>
+    <div className="flex h-full" style={{ background: "var(--cds-surface-tint)" }}>
       {/* Editor panel */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Toolbar */}
         <div
           className="flex items-center gap-2 px-5 py-2.5 border-b border-gray-100"
-          style={{ background: "white" }}
+          style={{ background: "var(--cds-surface)" }}
         >
-          <span className="text-xs text-gray-400 mr-auto">
+          <span className="text-xs mr-auto" style={{ color: "var(--cds-text-muted)" }}>
             {wc} {wc === 1 ? "word" : "words"}
           </span>
 
@@ -115,9 +115,9 @@ export function DocCreator() {
             onClick={handleSuggest}
             disabled={loading || !content.trim()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "rgba(99,102,241,.1)", color: "#6366f1" }}
-            onMouseEnter={(e) => { if (!loading && content.trim()) (e.currentTarget as HTMLButtonElement).style.background = "rgba(99,102,241,.18)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(99,102,241,.1)"; }}
+            style={{ background: "var(--cds-accent-tint)", color: "var(--cds-accent-text)" }}
+            onMouseEnter={(e) => { if (!loading && content.trim()) (e.currentTarget as HTMLButtonElement).style.background = "#F5C4B3"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--cds-accent-tint)"; }}
           >
             {loading ? (
               <>
@@ -135,7 +135,7 @@ export function DocCreator() {
             onClick={handleCopy}
             disabled={!content.trim()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "#f3f4f6", color: "#374151" }}
+            style={{ background: "var(--cds-surface-tint-hover)", color: "var(--cds-text-secondary)" }}
           >
             {copied ? "✓ Copied" : "Copy"}
           </button>
@@ -144,7 +144,7 @@ export function DocCreator() {
             onClick={handleClear}
             disabled={!content && !title}
             className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "#f3f4f6", color: "#374151" }}
+            style={{ background: "var(--cds-surface-tint-hover)", color: "var(--cds-text-secondary)" }}
           >
             Clear
           </button>
@@ -159,7 +159,7 @@ export function DocCreator() {
             onChange={(e) => setTitle(e.target.value)}
             className="w-full text-2xl font-bold text-gray-900 bg-transparent border-none outline-none placeholder-gray-300 mb-4"
           />
-          <div className="w-10 h-0.5 rounded mb-6" style={{ background: "rgba(99,102,241,.3)" }} />
+          <div className="w-10 h-0.5 rounded mb-6" style={{ background: "#F0997B" }} />
           <textarea
             ref={textareaRef}
             placeholder="Start writing… When you want a suggestion grounded in your knowledge base, click ✨ AI Suggest."
@@ -206,7 +206,8 @@ export function DocCreator() {
                             href={s.doc_source}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs px-2 py-0.5 rounded-full border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
+                            className="text-xs px-2 py-0.5 rounded-full transition-colors"
+                            style={{ border: "1px solid #F5C4B3", background: "var(--cds-accent-tint)", color: "var(--cds-accent-text)" }}
                           >
                             {s.doc_title || sourceLabel(s.doc_source)}
                           </a>
@@ -231,9 +232,9 @@ export function DocCreator() {
               <button
                 onClick={insertSuggestion}
                 className="w-full py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{ background: "#6366f1", color: "white" }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#4f46e5"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#6366f1"; }}
+                style={{ background: "var(--cds-accent)", color: "white" }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--cds-accent-hover)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--cds-accent)"; }}
               >
                 Insert into document
               </button>

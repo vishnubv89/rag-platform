@@ -23,21 +23,21 @@ export function ChatWindow() {
   }, [messages, loading, suggestions]);
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "#ffffff" }}>
+    <div className="flex flex-col h-full" style={{ background: "var(--cds-surface)" }}>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto text-center">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center mb-5"
-              style={{ background: "#eff6ff", border: "1px solid #bfdbfe" }}
+              style={{ background: "var(--cds-accent-tint)", border: "1px solid #F5C4B3" }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cds-accent)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
               </svg>
             </div>
-            <h2 className="text-base font-semibold text-gray-800 mb-2">Ask your knowledge base</h2>
-            <p className="text-sm text-gray-400 mb-7 leading-relaxed">
+            <h2 className="text-base font-semibold mb-2" style={{ color: "var(--cds-text-primary)" }}>Ask your knowledge base</h2>
+            <p className="text-sm mb-7 leading-relaxed" style={{ color: "var(--cds-text-muted)" }}>
               Answers grounded in your connected sources — ServiceNow, SharePoint, Confluence, and uploaded documents.
             </p>
             <div className="grid grid-cols-1 gap-1.5 w-full">
@@ -45,17 +45,17 @@ export function ChatWindow() {
                 <button
                   key={s}
                   onClick={() => send(s)}
-                  className="text-left px-4 py-2.5 rounded-lg text-sm text-gray-600 transition-colors"
-                  style={{ background: "#f7f7f8", border: "1px solid #e8e8ea" }}
+                  className="text-left px-4 py-2.5 rounded-lg text-sm transition-colors"
+                  style={{ background: "var(--cds-surface-tint)", border: "1px solid var(--cds-border)", color: "var(--cds-text-secondary)" }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background = "#eff6ff";
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = "#bfdbfe";
-                    (e.currentTarget as HTMLButtonElement).style.color = "#1d4ed8";
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--cds-accent-tint)";
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "#F5C4B3";
+                    (e.currentTarget as HTMLButtonElement).style.color = "var(--cds-accent-text)";
                   }}
                   onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background = "#f7f7f8";
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = "#e8e8ea";
-                    (e.currentTarget as HTMLButtonElement).style.color = "#4b5563";
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--cds-surface-tint)";
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--cds-border)";
+                    (e.currentTarget as HTMLButtonElement).style.color = "var(--cds-text-secondary)";
                   }}
                 >
                   {s}
@@ -70,28 +70,28 @@ export function ChatWindow() {
               <div className="flex justify-start mb-4">
                 <div
                   className="max-w-[72%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
-                  style={{ background: "#ffffff", color: "#111827", border: "1px solid #e8e8ea", borderRadius: "4px 16px 16px 16px" }}
+                  style={{ background: "var(--cds-surface)", color: "var(--cds-text-primary)", border: "1px solid var(--cds-border)", borderRadius: "4px 16px 16px 16px" }}
                 >
                   {streamingContent ? (
                     <>
                       {streamingContent}
                       <span
                         className="inline-block w-0.5 h-4 ml-0.5 align-middle animate-pulse"
-                        style={{ background: "#6b7280" }}
+                        style={{ background: "var(--cds-text-secondary)" }}
                       />
                     </>
                   ) : (
                     <>
-                      <span className="typing-dot" style={{ color: "#9ca3af" }} />
-                      <span className="typing-dot mx-1" style={{ color: "#9ca3af" }} />
-                      <span className="typing-dot" style={{ color: "#9ca3af" }} />
+                      <span className="typing-dot" style={{ color: "var(--cds-text-muted)" }} />
+                      <span className="typing-dot mx-1" style={{ color: "var(--cds-text-muted)" }} />
+                      <span className="typing-dot" style={{ color: "var(--cds-text-muted)" }} />
                     </>
                   )}
                 </div>
               </div>
             )}
             {error && (
-              <div className="text-center text-xs py-2 px-4 rounded-lg mx-auto max-w-sm mt-2" style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>
+              <div className="text-center text-xs py-2 px-4 rounded-lg mx-auto max-w-sm mt-2" style={{ background: "#FCEBEB", color: "#791F1F", border: "1px solid #F7C1C1" }}>
                 {error}
               </div>
             )}
@@ -105,19 +105,19 @@ export function ChatWindow() {
                     onClick={() => send(s)}
                     className="text-left px-3.5 py-2 rounded-xl text-sm transition-colors"
                     style={{
-                      background: "#f7f7f8",
-                      border: "1px solid #e8e8ea",
-                      color: "#4b5563",
+                      background: "var(--cds-surface-tint)",
+                      border: "1px solid var(--cds-border)",
+                      color: "var(--cds-text-secondary)",
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#eff6ff";
-                      e.currentTarget.style.borderColor = "#bfdbfe";
-                      e.currentTarget.style.color = "#1d4ed8";
+                      e.currentTarget.style.background = "var(--cds-accent-tint)";
+                      e.currentTarget.style.borderColor = "#F5C4B3";
+                      e.currentTarget.style.color = "var(--cds-accent-text)";
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "#f7f7f8";
-                      e.currentTarget.style.borderColor = "#e8e8ea";
-                      e.currentTarget.style.color = "#4b5563";
+                      e.currentTarget.style.background = "var(--cds-surface-tint)";
+                      e.currentTarget.style.borderColor = "var(--cds-border)";
+                      e.currentTarget.style.color = "var(--cds-text-secondary)";
                     }}
                   >
                     {s}
@@ -135,7 +135,7 @@ export function ChatWindow() {
         <button
           onClick={() => setShowUpload((v) => !v)}
           className="flex items-center gap-1.5 text-xs transition-colors py-1"
-          style={{ color: showUpload ? "#2563eb" : "#9ca3af" }}
+          style={{ color: showUpload ? "var(--cds-accent)" : "var(--cds-text-muted)" }}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />

@@ -56,14 +56,14 @@ export function Sidebar({ activeApp, onAppChange }: Props) {
   return (
     <aside
       className="flex flex-col h-full sidebar-scroll"
-      style={{ width: 228, minWidth: 228, background: "#111827", borderRight: "1px solid rgba(255,255,255,.05)" }}
+      style={{ width: 228, minWidth: 228, background: "var(--cds-sidebar)", borderRight: "1px solid rgba(255,255,255,.06)" }}
     >
       {/* Brand */}
-      <div className="px-5 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+      <div className="px-5 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
         <div className="flex items-center gap-2.5">
           <div
             className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: "#2563eb" }}
+            style={{ background: "var(--cds-accent)" }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
@@ -71,14 +71,14 @@ export function Sidebar({ activeApp, onAppChange }: Props) {
           </div>
           <div>
             <div className="text-white font-semibold text-sm leading-tight tracking-tight">Knowledge Mesh</div>
-            <div className="text-xs mt-0.5" style={{ color: "#4b5563" }}>Agentic RAG</div>
+            <div className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,.35)" }}>Agentic RAG</div>
           </div>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="px-3 pt-4 pb-2">
-        <p className="px-2 mb-2 text-xs font-medium uppercase tracking-widest" style={{ color: "#374151", letterSpacing: ".08em", fontSize: ".6rem" }}>
+        <p className="px-2 mb-2 text-xs font-medium uppercase tracking-widest" style={{ color: "rgba(255,255,255,.25)", letterSpacing: ".08em", fontSize: ".6rem" }}>
           Apps
         </p>
         {NAV_APPS.map((app) => {
@@ -89,8 +89,8 @@ export function Sidebar({ activeApp, onAppChange }: Props) {
               onClick={() => !app.soon && onAppChange(app.id)}
               className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg mb-0.5 text-sm transition-colors"
               style={{
-                background: active ? "rgba(37,99,235,.15)" : "transparent",
-                color: app.soon ? "#374151" : active ? "#93c5fd" : "#9ca3af",
+                background: active ? "var(--cds-accent-ring)" : "transparent",
+                color: app.soon ? "rgba(255,255,255,.25)" : active ? "#F0997B" : "rgba(255,255,255,.5)",
                 cursor: app.soon ? "default" : "pointer",
               }}
               onMouseEnter={(e) => {
@@ -107,40 +107,40 @@ export function Sidebar({ activeApp, onAppChange }: Props) {
               {app.soon && (
                 <span
                   className="text-xs rounded px-1.5 py-0.5"
-                  style={{ background: "rgba(255,255,255,.05)", color: "#4b5563", fontSize: ".6rem", letterSpacing: ".06em" }}
+                  style={{ background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.35)", fontSize: ".6rem", letterSpacing: ".06em" }}
                 >
                   SOON
                 </span>
               )}
               {active && (
-                <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "#2563eb" }} />
+                <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "var(--cds-accent)" }} />
               )}
             </button>
           );
         })}
       </nav>
 
-      <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "4px 16px 8px" }} />
+      <div style={{ height: 1, background: "rgba(255,255,255,.06)", margin: "4px 16px 8px" }} />
 
       {/* Chat history */}
       <div className="flex-1 overflow-y-auto px-3 sidebar-scroll">
         <div className="flex items-center justify-between px-2 mb-2">
-          <p className="text-xs font-medium uppercase tracking-widest" style={{ color: "#374151", letterSpacing: ".08em", fontSize: ".6rem" }}>
+          <p className="text-xs font-medium uppercase tracking-widest" style={{ color: "rgba(255,255,255,.25)", letterSpacing: ".08em", fontSize: ".6rem" }}>
             History
           </p>
           <button
             onClick={newSession}
             className="text-xs px-2 py-0.5 rounded transition-colors"
-            style={{ color: "#4b5563" }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#9ca3af")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#4b5563")}
+            style={{ color: "rgba(255,255,255,.35)" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,.5)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,.35)")}
             title="New chat"
           >
             + New
           </button>
         </div>
         {sessions.length === 0 ? (
-          <p className="text-xs px-2 py-2" style={{ color: "#374151" }}>No history yet</p>
+          <p className="text-xs px-2 py-2" style={{ color: "rgba(255,255,255,.25)" }}>No history yet</p>
         ) : (
           sessions.map((s) => (
             <button
@@ -149,7 +149,7 @@ export function Sidebar({ activeApp, onAppChange }: Props) {
               className="w-full text-left px-2.5 py-1.5 rounded-lg mb-0.5 text-xs truncate transition-colors"
               style={{
                 background: s.id === activeSessionId ? "rgba(255,255,255,.06)" : "transparent",
-                color: s.id === activeSessionId ? "#d1d5db" : "#4b5563",
+                color: s.id === activeSessionId ? "rgba(255,255,255,.75)" : "rgba(255,255,255,.35)",
               }}
             >
               {s.preview || "New conversation"}
@@ -159,15 +159,15 @@ export function Sidebar({ activeApp, onAppChange }: Props) {
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-3" style={{ borderTop: "1px solid rgba(255,255,255,.05)" }}>
+      <div className="px-3 py-3" style={{ borderTop: "1px solid rgba(255,255,255,.06)" }}>
         <a
           href="http://localhost:8080"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 text-xs rounded-lg px-2.5 py-2 transition-colors"
-          style={{ color: "#4b5563" }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "#6b7280")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "#4b5563")}
+          style={{ color: "rgba(255,255,255,.35)" }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,.5)")}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,.35)")}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />

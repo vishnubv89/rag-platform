@@ -58,32 +58,32 @@ export function LoginPage() {
   return (
     <div
       className="flex items-center justify-center min-h-screen"
-      style={{ background: "#f7f7f8" }}
+      style={{ background: "var(--cds-bg)" }}
     >
       <div
         className="w-full max-w-sm rounded-2xl p-8"
-        style={{ background: "#ffffff", border: "1px solid #e8e8ea" }}
+        style={{ background: "var(--cds-surface)", border: "1px solid var(--cds-border)" }}
       >
         {/* Brand */}
         <div className="flex items-center gap-2.5 mb-8">
           <div
             className="w-8 h-8 rounded-xl flex items-center justify-center"
-            style={{ background: "#2563eb" }}
+            style={{ background: "var(--cds-accent)" }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
             </svg>
           </div>
           <div>
-            <div className="font-semibold text-gray-900 text-sm tracking-tight">Knowledge Mesh</div>
-            <div className="text-xs" style={{ color: "#9ca3af" }}>Agentic RAG</div>
+            <div className="font-semibold text-sm tracking-tight" style={{ color: "var(--cds-text-primary)" }}>Knowledge Mesh</div>
+            <div className="text-xs" style={{ color: "var(--cds-text-muted)" }}>Agentic RAG</div>
           </div>
         </div>
 
-        <h1 className="text-base font-semibold text-gray-900 mb-1">
+        <h1 className="text-base font-semibold mb-1" style={{ color: "var(--cds-text-primary)" }}>
           {mode === "setup" ? "Create your account" : "Sign in"}
         </h1>
-        <p className="text-xs text-gray-400 mb-6">
+        <p className="text-xs mb-6" style={{ color: "var(--cds-text-muted)" }}>
           {mode === "setup"
             ? "Set up the first admin account"
             : "Enter your credentials to continue"}
@@ -91,36 +91,36 @@ export function LoginPage() {
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+            <label className="block text-xs font-medium mb-1" style={{ color: "var(--cds-text-secondary)" }}>Email</label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full text-sm px-3 py-2.5 rounded-lg border focus:outline-none"
-              style={{ border: "1px solid #e8e8ea", background: "#f7f7f8" }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = "#2563eb"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(37,99,235,.08)"; }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = "#e8e8ea"; e.currentTarget.style.boxShadow = "none"; }}
+              style={{ border: "1px solid var(--cds-border)", background: "var(--cds-surface-tint)" }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = "var(--cds-accent)"; e.currentTarget.style.boxShadow = "0 0 0 3px var(--cds-accent-soft)"; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = "var(--cds-border)"; e.currentTarget.style.boxShadow = "none"; }}
               placeholder="you@company.com"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
+            <label className="block text-xs font-medium mb-1" style={{ color: "var(--cds-text-secondary)" }}>Password</label>
             <input
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full text-sm px-3 py-2.5 rounded-lg border focus:outline-none"
-              style={{ border: "1px solid #e8e8ea", background: "#f7f7f8" }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = "#2563eb"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(37,99,235,.08)"; }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = "#e8e8ea"; e.currentTarget.style.boxShadow = "none"; }}
+              style={{ border: "1px solid var(--cds-border)", background: "var(--cds-surface-tint)" }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = "var(--cds-accent)"; e.currentTarget.style.boxShadow = "0 0 0 3px var(--cds-accent-soft)"; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = "var(--cds-border)"; e.currentTarget.style.boxShadow = "none"; }}
               placeholder="••••••••"
             />
           </div>
 
           {error && (
-            <p className="text-xs px-3 py-2 rounded-lg" style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>
+            <p className="text-xs px-3 py-2 rounded-lg" style={{ background: "#FCEBEB", color: "#791F1F", border: "1px solid #F7C1C1" }}>
               {error}
             </p>
           )}
@@ -129,7 +129,7 @@ export function LoginPage() {
             type="submit"
             disabled={loading}
             className="w-full py-2.5 rounded-lg text-sm font-medium text-white transition-opacity"
-            style={{ background: "#2563eb", opacity: loading ? 0.7 : 1 }}
+            style={{ background: "var(--cds-accent)", opacity: loading ? 0.7 : 1 }}
           >
             {loading ? "Please wait…" : mode === "setup" ? "Create account" : "Sign in"}
           </button>
@@ -139,17 +139,17 @@ export function LoginPage() {
         {import.meta.env.VITE_ZITADEL_CLIENT_ID && (
           <>
             <div className="mt-5 flex items-center gap-3">
-              <div className="flex-1 h-px" style={{ background: "#e8e8ea" }} />
-              <span className="text-xs text-gray-400">or</span>
-              <div className="flex-1 h-px" style={{ background: "#e8e8ea" }} />
+              <div className="flex-1 h-px" style={{ background: "var(--cds-border)" }} />
+              <span className="text-xs" style={{ color: "var(--cds-text-muted)" }}>or</span>
+              <div className="flex-1 h-px" style={{ background: "var(--cds-border)" }} />
             </div>
             <button
               type="button"
               onClick={() => loginWithZitadel()}
               className="mt-3 w-full py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
-              style={{ background: "#f7f7f8", color: "#374151", border: "1px solid #e8e8ea" }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#e5e7eb"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#f7f7f8"; }}
+              style={{ background: "var(--cds-surface-tint)", color: "var(--cds-text-secondary)", border: "1px solid var(--cds-border)" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--cds-surface-tint-hover)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--cds-surface-tint)"; }}
             >
               {/* Zitadel shield icon */}
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

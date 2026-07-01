@@ -28,8 +28,8 @@ export function MessageBubble({ message }: Props) {
           className="px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
           style={
             isUser
-              ? { background: "#18181b", color: "#f9fafb", borderRadius: "16px 16px 4px 16px" }
-              : { background: "#ffffff", color: "#111827", border: "1px solid #e8e8ea", borderRadius: "4px 16px 16px 16px" }
+              ? { background: "var(--cds-sidebar)", color: "#fdfcfa", borderRadius: "16px 16px 4px 16px" }
+              : { background: "var(--cds-surface)", color: "var(--cds-text-primary)", border: "1px solid var(--cds-border)", borderRadius: "4px 16px 16px 16px" }
           }
         >
           {message.content}
@@ -47,7 +47,7 @@ export function MessageBubble({ message }: Props) {
                   className="transition-opacity"
                   style={{ opacity: feedback !== null && feedback !== 1 ? 0.3 : 1 }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill={feedback === 1 ? "#16a34a" : "none"} stroke={feedback === 1 ? "#16a34a" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill={feedback === 1 ? "#16a34a" : "none"} stroke={feedback === 1 ? "#16a34a" : "var(--cds-text-faint)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" />
                     <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
                   </svg>
@@ -59,7 +59,7 @@ export function MessageBubble({ message }: Props) {
                   className="transition-opacity"
                   style={{ opacity: feedback !== null && feedback !== -1 ? 0.3 : 1 }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill={feedback === -1 ? "#dc2626" : "none"} stroke={feedback === -1 ? "#dc2626" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill={feedback === -1 ? "#dc2626" : "none"} stroke={feedback === -1 ? "#dc2626" : "var(--cds-text-faint)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z" />
                     <path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" />
                   </svg>
@@ -69,7 +69,7 @@ export function MessageBubble({ message }: Props) {
           </>
         )}
 
-        <div className={`text-xs mt-1 ${isUser ? "text-right" : "text-left"}`} style={{ color: "#d1d5db" }}>
+        <div className={`text-xs mt-1 ${isUser ? "text-right" : "text-left"}`} style={{ color: "var(--cds-text-faint)" }}>
           {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       </div>

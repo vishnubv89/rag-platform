@@ -83,7 +83,7 @@ export function KnowledgeHub() {
   const totalPages = Math.ceil(total / 20);
 
   return (
-    <div className="flex h-full" style={{ background: "#fafafa" }}>
+    <div className="flex h-full" style={{ background: "var(--cds-bg)" }}>
       {/* Left panel — doc list */}
       {showList && <div
         className="flex flex-col border-r border-gray-100"
@@ -108,7 +108,9 @@ export function KnowledgeHub() {
               placeholder="Search documents…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300"
+              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none"
+              onFocus={(e) => { e.currentTarget.style.borderColor = "var(--cds-accent)"; e.currentTarget.style.boxShadow = "0 0 0 3px var(--cds-accent-soft)"; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = ""; e.currentTarget.style.boxShadow = "none"; }}
             />
             {query && (
               <button
@@ -141,8 +143,10 @@ export function KnowledgeHub() {
             <button
               key={doc.id}
               onClick={() => setSelectedId(doc.id === selectedId ? null : doc.id)}
-              className="w-full text-left px-5 py-3.5 border-b border-gray-50 hover:bg-indigo-50 transition-colors"
-              style={doc.id === selectedId ? { background: "rgba(99,102,241,.07)" } : undefined}
+              className="w-full text-left px-5 py-3.5 border-b border-gray-50 transition-colors"
+              style={doc.id === selectedId ? { background: "var(--cds-accent-tint)" } : undefined}
+              onMouseEnter={(e) => { if (doc.id !== selectedId) e.currentTarget.style.background = "var(--cds-surface-tint)"; }}
+              onMouseLeave={(e) => { if (doc.id !== selectedId) e.currentTarget.style.background = ""; }}
             >
               <div className="flex items-start justify-between gap-2">
                 <p
@@ -155,7 +159,7 @@ export function KnowledgeHub() {
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 {doc.source && (
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100 truncate max-w-[140px]">
+                  <span className="text-xs px-1.5 py-0.5 rounded truncate max-w-[140px]" style={{ background: "var(--cds-accent-tint)", color: "var(--cds-accent-text)", border: "1px solid #F5C4B3" }}>
                     {sourceLabel(doc.source)}
                   </span>
                 )}
@@ -219,7 +223,7 @@ export function KnowledgeHub() {
                         <span className="text-xs text-gray-400">{timeAgo(detail.created_at)}</span>
                         {detail.source && (
                           <a href={detail.source} target="_blank" rel="noopener noreferrer"
-                             className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline truncate max-w-xs">
+                             className="text-xs hover:underline truncate max-w-xs" style={{ color: "var(--cds-accent-text)" }}>
                             {sourceLabel(detail.source)} ↗
                           </a>
                         )}
