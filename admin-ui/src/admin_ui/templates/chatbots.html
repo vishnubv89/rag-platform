@@ -97,8 +97,8 @@
           <div class="mt-3 d-flex align-items-center gap-3">
             <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
             <span class="text-muted small">
-              Created {{ cb.created_at.strftime('%Y-%m-%d') if cb.created_at else '—' }}
-              {% if cb.last_used %} · Last used {{ cb.last_used.strftime('%Y-%m-%d') }}{% endif %}
+              Created {{ cb.created_at[:10] if cb.created_at else '—' }}
+              {% if cb.last_used %} · Last used {{ cb.last_used[:10] }}{% endif %}
             </span>
           </div>
         </form>
