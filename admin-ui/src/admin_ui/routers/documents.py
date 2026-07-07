@@ -1,3 +1,5 @@
+from urllib.parse import quote, unquote
+
 from fastapi import APIRouter, Request, Form, UploadFile, File
 from fastapi.responses import RedirectResponse
 from admin_ui import client
@@ -14,6 +16,12 @@ async def list_documents(request: Request, page: int = 1):
     except Exception as e:
         docs, orgs = {"items": [], "total": 0}, []
         request.state.error = str(e)
+
+    # Ingest failures redirect here with ?error=... since the POST handler
+    # can't render request.state.error across a 303 redirect.
+    error_param = request.query_params.get("error")
+    if error_param and not request.state.error:
+        request.state.error = unquote(error_param)
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -106,7 +114,10 @@ async def ingest_file_document(
 ):
     org_id_int = int(org_id) if org_id else None
     content = await file.read()
-    await client.ingest_file_upload(filename=file.filename or "upload", content=content, org_id=org_id_int)
+    try:
+        await client.ingest_file_upload(filename=file.filename or "upload", content=content, org_id=org_id_int)
+    except Exception as e:
+        return RedirectResponse(f"/documents?error={quote(str(e))}", status_code=303)
     return RedirectResponse("/documents", status_code=303)
 
 
@@ -118,5 +129,8 @@ async def ingest_document(
     org_id: str | None = Form(None),
 ):
     org_id_int = int(org_id) if org_id else None
-    await client.ingest_text(title=title, text=text, source=source, org_id=org_id_int)
+    try:
+        await client.ingest_text(title=title, text=text, source=source, org_id=org_id_int)
+    except Exception as e:
+        return RedirectResponse(f"/documents?error={quote(str(e))}", status_code=303)
     return RedirectResponse("/documents", status_code=303)

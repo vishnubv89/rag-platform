@@ -37,7 +37,11 @@ def get_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(
             base_url=settings.backend_url,
             headers={"X-Admin-Key": settings.admin_secret_key},
-            timeout=httpx.Timeout(10.0, read=300.0),
+            # Document ingestion embeds chunks one at a time with a deliberate
+            # inter-call delay to respect free-tier embedding rate limits, and
+            # can retry with exponential backoff (up to ~7 min) on a 429 — a
+            # short read timeout here just turns "slow" into "crashed".
+            timeout=httpx.Timeout(10.0, read=900.0),
         )
     return _client
 
