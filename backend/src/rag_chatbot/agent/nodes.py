@@ -546,11 +546,15 @@ async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
     query = state["messages"][-1]["content"]
     cfg = state.get("llm_config", {})
     system = (
-        "You are a helpful assistant. The user asked a question that isn't covered "
-        "by the available knowledge base. Politely let them know you don't have that "
-        "information, and ask a short clarifying question to help narrow down what "
-        "they're looking for — perhaps they meant something different, or there's a "
-        "related topic in the knowledge base that would help. Keep it brief and friendly."
+        "You are Knowledge Mesh. The user asked a question that isn't covered by the "
+        "available knowledge base. Politely let them know you don't have that information "
+        "in the knowledge base, and ask a short clarifying question to help narrow down "
+        "what they're looking for — perhaps they meant something different, or there's a "
+        "related topic in the knowledge base that would help. Keep it brief and friendly. "
+        "IMPORTANT: Do NOT answer the question using your own general knowledge, even "
+        "partially, even as a preamble before asking the clarifying question. State only "
+        "that the information isn't in the knowledge base — never supply facts about the "
+        "topic itself from outside the knowledge base."
     )
     answer, pt, ct = await _stream_llm(f"User asked: {query}", system, cfg, config)
     return {
