@@ -1248,6 +1248,8 @@ class ChatbotCreate(BaseModel):
     description: str = ""
     system_instruction: str = ""
     welcome_message: str = ""
+    accent_color: str = "#D85A30"
+    position: str = "bottom-right"
 
 
 class ChatbotPatch(BaseModel):
@@ -1256,6 +1258,8 @@ class ChatbotPatch(BaseModel):
     system_instruction: str | None = None
     welcome_message: str | None = None
     is_active: bool | None = None
+    accent_color: str | None = None
+    position: str | None = None
 
 
 @router.get("/orgs/{org_id}/chatbots")
@@ -1264,7 +1268,7 @@ async def list_chatbots(org_id: int):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT id, name, description, system_instruction, welcome_message,
-                      is_active, created_at, last_used
+                      accent_color, position, is_active, created_at, last_used
                FROM chatbots WHERE org_id=$1 ORDER BY id""",
             org_id,
         )
@@ -1279,11 +1283,12 @@ async def create_chatbot(org_id: int, body: ChatbotCreate):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """INSERT INTO chatbots
-                   (org_id, name, description, system_instruction, welcome_message, key_hash)
-               VALUES ($1,$2,$3,$4,$5,$6)
+                   (org_id, name, description, system_instruction, welcome_message,
+                    accent_color, position, key_hash)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
                RETURNING id, name""",
-            org_id, body.name, body.description,
-            body.system_instruction, body.welcome_message, key_hash,
+            org_id, body.name, body.description, body.system_instruction,
+            body.welcome_message, body.accent_color, body.position, key_hash,
         )
     return {**dict(row), "key": raw, "note": "This is the only time the embed token is shown."}
 

@@ -123,10 +123,12 @@ async def list_chatbots(org_id: int) -> list:
     return await _get(f"/admin/orgs/{org_id}/chatbots")
 
 async def create_chatbot(org_id: int, name: str, description: str,
-                         system_instruction: str, welcome_message: str) -> dict:
+                         system_instruction: str, welcome_message: str,
+                         accent_color: str = "#D85A30", position: str = "bottom-right") -> dict:
     return await _post(f"/admin/orgs/{org_id}/chatbots", json={
         "name": name, "description": description,
         "system_instruction": system_instruction, "welcome_message": welcome_message,
+        "accent_color": accent_color, "position": position,
     })
 
 async def patch_chatbot(org_id: int, chatbot_id: int, **fields) -> dict:

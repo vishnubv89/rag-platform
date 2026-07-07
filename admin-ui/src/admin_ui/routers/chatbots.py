@@ -41,6 +41,8 @@ async def create_chatbot(
     description: str = Form(""),
     system_instruction: str = Form(""),
     welcome_message: str = Form(""),
+    accent_color: str = Form("#D85A30"),
+    position: str = Form("bottom-right"),
 ):
     org_id_int = int(org_id)
     result = await client.create_chatbot(
@@ -49,6 +51,8 @@ async def create_chatbot(
         description=description,
         system_instruction=system_instruction,
         welcome_message=welcome_message,
+        accent_color=accent_color,
+        position=position,
     )
     raw_key = result.get("key", "")
     chatbot_id = result.get("id", "")
@@ -73,6 +77,8 @@ async def update_chatbot(
     description: str = Form(""),
     system_instruction: str = Form(""),
     welcome_message: str = Form(""),
+    accent_color: str = Form("#D85A30"),
+    position: str = Form("bottom-right"),
 ):
     org_id = request.state.active_org_id
     await client.patch_chatbot(
@@ -81,6 +87,8 @@ async def update_chatbot(
         description=description,
         system_instruction=system_instruction,
         welcome_message=welcome_message,
+        accent_color=accent_color,
+        position=position,
     )
     return RedirectResponse("/chatbots?saved=1", status_code=303)
 

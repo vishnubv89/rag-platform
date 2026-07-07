@@ -14,7 +14,7 @@ if not _rag_log.handlers:
     _h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
     _rag_log.addHandler(_h)
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, Header, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from slowapi.errors import RateLimitExceeded
@@ -589,10 +589,31 @@ async def health():
 
 
 @app.get("/widget/config")
-async def widget_config(org_id: int | None = None):
+async def widget_config(
+    org_id: int | None = None,
+    x_embed_token: str = Header(default="", alias="X-Embed-Token"),
+):
     """Public endpoint — returns only display-safe config for the embeddable widget."""
     pool = await get_pool()
     import hashlib as _hl
+
+    if x_embed_token:
+        key_hash = _hl.sha256(x_embed_token.encode()).hexdigest()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT name, welcome_message, accent_color, position, org_id
+                   FROM chatbots WHERE key_hash=$1 AND is_active=TRUE""",
+                key_hash,
+            )
+        if row:
+            return {
+                "chatbot_name": row["name"],
+                "welcome_message": row["welcome_message"] or "",
+                "accent_color": row["accent_color"],
+                "position": row["position"],
+                "org_id": row["org_id"],
+            }
+
     async with pool.acquire() as conn:
         if org_id is None:
             org_id = await conn.fetchval(
@@ -604,6 +625,9 @@ async def widget_config(org_id: int | None = None):
     cfg = {r["key"]: r["value"] for r in rows}
     return {
         "chatbot_name": cfg.get("chatbot_name", "Knowledge Mesh"),
+        "welcome_message": "",
+        "accent_color": "#D85A30",
+        "position": "bottom-right",
         "org_id": org_id,
     }
 

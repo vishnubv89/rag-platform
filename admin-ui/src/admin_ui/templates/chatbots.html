@@ -67,10 +67,25 @@
               <input class="form-control" name="welcome_message" value="{{ cb.welcome_message or '' }}"
                      placeholder="Hi! How can I help you today?">
             </div>
-            <div class="col-12">
+            <div class="col-md-6">
               <label class="form-label fw-semibold">Description</label>
               <input class="form-control" name="description" value="{{ cb.description or '' }}"
                      placeholder="Brief note on where this chatbot is deployed">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Accent Color</label>
+              <div class="input-group">
+                <input class="form-control form-control-color" type="color" name="accent_color" oninput="this.nextElementSibling.value=this.value"
+                       value="{{ cb.accent_color or '#D85A30' }}" title="Bubble and header color">
+                <input class="form-control font-monospace" value="{{ cb.accent_color or '#D85A30' }}" disabled>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Position</label>
+              <select class="form-select" name="position">
+                <option value="bottom-right" {% if (cb.position or 'bottom-right') == 'bottom-right' %}selected{% endif %}>Bottom right</option>
+                <option value="bottom-left" {% if cb.position == 'bottom-left' %}selected{% endif %}>Bottom left</option>
+              </select>
             </div>
             <div class="col-12">
               <label class="form-label fw-semibold">System Instruction</label>
@@ -91,12 +106,10 @@
         <!-- Embed snippet -->
         <hr class="my-3">
         <p class="fw-semibold small mb-1"><i class="bi bi-code-slash me-1"></i>Embed Snippet</p>
-        <p class="text-muted small mb-2">Drop this into any internal HTML page. Replace <code>YOUR_TOKEN_HERE</code> with the embed token shown when this chatbot was created.</p>
+        <p class="text-muted small mb-2">Drop this into any HTML page — appearance (color, position, welcome message) is controlled here, not in the snippet. Replace <code>YOUR_TOKEN_HERE</code> with the embed token shown when this chatbot was created.</p>
         <pre class="bg-dark text-light p-2 rounded small" style="white-space:pre-wrap;word-break:break-all;" id="snippet-{{ cb.id }}">&lt;script
-  src="http://localhost:8080/widget/chat-widget.js"
+  src="{{ request.base_url.scheme }}://{{ request.base_url.hostname }}:5173/widget/chat-widget.js"
   data-token="YOUR_TOKEN_HERE"
-  data-org="{{ active_org_id }}"
-  data-title="{{ cb.name }}"
 &gt;&lt;/script&gt;</pre>
         <button class="btn btn-sm btn-outline-secondary mt-1"
                 onclick="navigator.clipboard.writeText(document.getElementById('snippet-{{ cb.id }}').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">
@@ -126,9 +139,24 @@
           <label class="form-label fw-semibold">Welcome Message</label>
           <input class="form-control" name="welcome_message" placeholder="Hi! How can I help you today?">
         </div>
-        <div class="col-12">
+        <div class="col-md-6">
           <label class="form-label fw-semibold">Description</label>
           <input class="form-control" name="description" placeholder="Deployed on the IT portal homepage">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Accent Color</label>
+          <div class="input-group">
+            <input class="form-control form-control-color" type="color" name="accent_color" oninput="this.nextElementSibling.value=this.value"
+                   value="#D85A30" title="Bubble and header color">
+            <input class="form-control font-monospace" value="#D85A30" disabled>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Position</label>
+          <select class="form-select" name="position">
+            <option value="bottom-right" selected>Bottom right</option>
+            <option value="bottom-left">Bottom left</option>
+          </select>
         </div>
         <div class="col-12">
           <label class="form-label fw-semibold">System Instruction</label>

@@ -26,8 +26,14 @@
   const cfg = {
     token: script.getAttribute("data-token") || "",
     orgId: parseInt(script.getAttribute("data-org") || "0", 10),
+    // title/position/accentColor/welcomeMessage below are overridden by the
+    // org's server-side chatbot config (fetched via /widget/config) once it
+    // resolves — these attribute values only apply before that resolves,
+    // or as a fallback if the fetch fails.
     title: script.getAttribute("data-title") || "Ask AI",
     position: script.getAttribute("data-position") || "bottom-right",
+    accentColor: script.getAttribute("data-accent-color") || "#D85A30",
+    welcomeMessage: script.getAttribute("data-welcome") || "Ask me anything about your knowledge base",
     context: script.getAttribute("data-context") || "",
     apiUrl,
   };
@@ -40,31 +46,52 @@
   const sessionId = Math.random().toString(36).slice(2);
   const history: { role: string; content: string }[] = [];
 
+  // ── Server-driven appearance (per-chatbot, set in Admin UI) ───────────────
+
+  fetch(`${cfg.apiUrl}/widget/config`, { headers: { "X-Embed-Token": cfg.token } })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((remote) => {
+      if (!remote) return;
+      if (remote.chatbot_name) cfg.title = remote.chatbot_name;
+      if (remote.accent_color) cfg.accentColor = remote.accent_color;
+      if (remote.position) cfg.position = remote.position;
+      if (remote.welcome_message) cfg.welcomeMessage = remote.welcome_message;
+      applyAppearance();
+    })
+    .catch(() => {
+      // Fall back silently to data-* attributes / defaults already set above.
+    });
+
   // ── CSS ──────────────────────────────────────────────────────────────────
 
   const css = `
-    :host { all: initial; font-family: system-ui, sans-serif; }
+    :host {
+      all: initial;
+      font-family: system-ui, sans-serif;
+      --accent: ${cfg.accentColor};
+    }
+
+    .bubble, .panel { right: 24px; left: auto; }
+    .bubble.pos-left, .panel.pos-left { left: 24px; right: auto; }
 
     .bubble {
       position: fixed;
-      ${cfg.position.includes("right") ? "right: 24px;" : "left: 24px;"}
       bottom: 24px;
       width: 52px; height: 52px;
       border-radius: 50%;
-      background: #2563eb;
+      background: var(--accent);
       border: none;
       cursor: pointer;
-      box-shadow: 0 4px 14px rgba(37,99,235,.45);
+      box-shadow: 0 4px 14px rgba(0,0,0,.25);
       display: flex; align-items: center; justify-content: center;
-      transition: transform .15s, box-shadow .15s;
+      transition: transform .15s, box-shadow .15s, filter .15s;
       z-index: 2147483647;
     }
-    .bubble:hover { transform: scale(1.08); box-shadow: 0 6px 18px rgba(37,99,235,.55); }
+    .bubble:hover { transform: scale(1.08); filter: brightness(0.92); }
     .bubble svg { width: 24px; height: 24px; fill: white; }
 
     .panel {
       position: fixed;
-      ${cfg.position.includes("right") ? "right: 24px;" : "left: 24px;"}
       bottom: 88px;
       width: 360px; max-width: calc(100vw - 48px);
       height: 520px; max-height: calc(100vh - 120px);
@@ -81,7 +108,7 @@
     .panel-header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 14px 16px;
-      background: #2563eb;
+      background: var(--accent);
       color: white;
       flex-shrink: 0;
     }
@@ -110,7 +137,7 @@
     }
     .msg.user {
       align-self: flex-end;
-      background: #2563eb; color: white;
+      background: var(--accent); color: white;
       border-bottom-right-radius: 4px;
     }
     .msg.assistant {
@@ -126,6 +153,7 @@
       align-items: center; justify-content: center;
       color: #9ca3af; font-size: 13px; gap: 8px;
       padding: 24px;
+      text-align: center;
     }
     .empty-state svg { width: 36px; height: 36px; opacity: .35; }
 
@@ -145,20 +173,20 @@
       outline: none;
       transition: border-color .15s;
     }
-    .input-row input:focus { border-color: #93c5fd; }
+    .input-row input:focus { border-color: var(--accent); }
     .input-row input::placeholder { color: #9ca3af; }
 
     .input-row button {
       padding: 9px 16px;
-      background: #2563eb; color: white;
+      background: var(--accent); color: white;
       border: none; border-radius: 10px;
       font-size: 13px; font-weight: 500;
       cursor: pointer;
-      transition: background .15s;
+      transition: filter .15s;
       flex-shrink: 0;
     }
-    .input-row button:hover { background: #1d4ed8; }
-    .input-row button:disabled { background: #93c5fd; cursor: default; }
+    .input-row button:hover { filter: brightness(0.88); }
+    .input-row button:disabled { filter: grayscale(0.4) brightness(1.3); cursor: default; }
 
     .powered-by {
       text-align: center;
@@ -182,8 +210,10 @@
   styleEl.textContent = css;
   shadow.appendChild(styleEl);
 
+  const posClass = cfg.position.includes("left") ? " pos-left" : "";
+
   const bubble = document.createElement("button");
-  bubble.className = "bubble";
+  bubble.className = "bubble" + posClass;
   bubble.setAttribute("aria-label", "Open chat");
   bubble.innerHTML = `
     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -195,12 +225,12 @@
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const panel = document.createElement("div");
-  panel.className = "panel hidden";
+  panel.className = "panel hidden" + posClass;
   panel.setAttribute("role", "dialog");
   panel.setAttribute("aria-label", cfg.title);
   panel.innerHTML = `
     <div class="panel-header">
-      <span class="title">${esc(cfg.title)}</span>
+      <span class="title" id="widget-title">${esc(cfg.title)}</span>
       <button class="close" aria-label="Close chat">×</button>
     </div>
     <div class="messages" id="msg-list">
@@ -211,7 +241,7 @@
                    3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                 stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span>Ask me anything about your knowledge base</span>
+        <span id="widget-welcome">${esc(cfg.welcomeMessage)}</span>
       </div>
     </div>
     <div class="input-row">
@@ -225,6 +255,21 @@
   const msgList = shadow.getElementById("msg-list")!;
   const input = shadow.getElementById("chat-input") as HTMLInputElement;
   const sendBtn = shadow.getElementById("send-btn") as HTMLButtonElement;
+
+  function applyAppearance() {
+    styleEl.textContent = css.replace(
+      /--accent:\s*[^;]+;/,
+      `--accent: ${cfg.accentColor};`
+    );
+    const left = cfg.position.includes("left");
+    bubble.classList.toggle("pos-left", left);
+    panel.classList.toggle("pos-left", left);
+    panel.setAttribute("aria-label", cfg.title);
+    const titleEl = shadow.getElementById("widget-title");
+    if (titleEl) titleEl.textContent = cfg.title;
+    const welcomeEl = shadow.getElementById("widget-welcome");
+    if (welcomeEl && firstMessage) welcomeEl.textContent = cfg.welcomeMessage;
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
