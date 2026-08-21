@@ -7,9 +7,9 @@ single ranked list of relevant chunks. Includes a fast-path that skips LLM
 grading when the top RRF score clears a minimum threshold.
 """
 
+from rag_chatbot.config import settings
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.embeddings.gemini_embedder import embed_text
-from rag_chatbot.config import settings
 from rag_chatbot.observability import get_langfuse
 
 _HYBRID_SQL = """
@@ -145,14 +145,16 @@ async def hybrid_search(
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
-        results.append({
-            "chunk_id": row["chunk_id"],
-            "doc_id": row["doc_id"],
-            "text": row["text"],
-            "score": float(row["rrf_score"]),
-            "doc_title": row["doc_title"] or "",
-            "doc_source": row["doc_source"] or "",
-        })
+        results.append(
+            {
+                "chunk_id": row["chunk_id"],
+                "doc_id": row["doc_id"],
+                "text": row["text"],
+                "score": float(row["rrf_score"]),
+                "doc_title": row["doc_title"] or "",
+                "doc_source": row["doc_source"] or "",
+            }
+        )
 
     lf = get_langfuse()
     if lf:
@@ -162,9 +164,11 @@ async def hybrid_search(
             input={"query": query, "top_k": k, "org_id": org_id},
             metadata={"org_id": org_id},
         ) as obs:
-            obs.update(output={
-                "num_results": len(results),
-                "doc_titles": [r["doc_title"] for r in results],
-            })
+            obs.update(
+                output={
+                    "num_results": len(results),
+                    "doc_titles": [r["doc_title"] for r in results],
+                }
+            )
 
     return results

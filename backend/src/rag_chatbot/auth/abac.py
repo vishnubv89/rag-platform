@@ -33,7 +33,9 @@ async def label_document(doc_id: int, labels: list[dict]) -> None:
                     """INSERT INTO document_labels (doc_id, label_type, label_value)
                        VALUES ($1, $2, $3)
                        ON CONFLICT (doc_id, label_type, label_value) DO NOTHING""",
-                    doc_id, label["label_type"], label["label_value"],
+                    doc_id,
+                    label["label_type"],
+                    label["label_value"],
                 )
 
 

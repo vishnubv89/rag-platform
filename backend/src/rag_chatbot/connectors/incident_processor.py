@@ -10,10 +10,12 @@ Pipeline:
   4. Generate a "Known Issue / Resolution" KB article per qualifying cluster (≥3 incidents)
   5. Upsert generated articles through the standard chunks+embeddings pipeline
 """
+
 import json
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from rag_chatbot.connectors.servicenow import IncidentRecord, ServiceNowConnector
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
@@ -60,8 +62,9 @@ How to avoid recurrence (omit section if not applicable).
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
+
 def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(x * x for x in b))
     if na == 0 or nb == 0:
@@ -91,6 +94,7 @@ def _incident_article_text(inc: IncidentRecord) -> str:
 
 # ── clustering ─────────────────────────────────────────────────────────────────
 
+
 async def _semantic_subclusters(
     members: list[IncidentRecord],
 ) -> dict[int, list[IncidentRecord]]:
@@ -98,7 +102,7 @@ async def _semantic_subclusters(
     texts = [_incident_embed_text(m) for m in members]
     embeddings = await embed_batch(texts, task_type="RETRIEVAL_DOCUMENT")
 
-    cluster_seeds: list[list[float]] = []   # representative embedding per cluster
+    cluster_seeds: list[list[float]] = []  # representative embedding per cluster
     assigned: list[int] = []
 
     for emb in embeddings:
@@ -115,7 +119,7 @@ async def _semantic_subclusters(
             cluster_seeds.append(emb)
 
     sub: dict[int, list[IncidentRecord]] = {}
-    for inc, c_id in zip(members, assigned):
+    for inc, c_id in zip(members, assigned, strict=True):
         sub.setdefault(c_id, []).append(inc)
     return sub
 
@@ -146,6 +150,7 @@ async def cluster_incidents(
 
 # ── article generation ─────────────────────────────────────────────────────────
 
+
 def _generate_article(
     cluster_key: str,
     members: list[IncidentRecord],
@@ -156,8 +161,7 @@ def _generate_article(
     subcategory = parts[1].replace("_", " ").title() if len(parts) > 1 else "General"
 
     incidents_text = "\n\n".join(
-        f"Incident {i + 1}:\n{_incident_article_text(m)}"
-        for i, m in enumerate(members)
+        f"Incident {i + 1}:\n{_incident_article_text(m)}" for i, m in enumerate(members)
     )
     prompt = _ARTICLE_PROMPT_TEMPLATE.format(
         n=len(members),
@@ -170,16 +174,20 @@ def _generate_article(
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 
+
 async def _already_processed_sys_ids(conn, connector_id: int) -> set[str]:
     """Return all incident sys_ids already captured in cluster documents."""
     rows = await conn.fetch(
-        "SELECT metadata FROM documents WHERE connector_id=$1 AND metadata::text LIKE '%incident_sys_ids%'",
+        "SELECT metadata FROM documents WHERE connector_id=$1 "
+        "AND metadata::text LIKE '%incident_sys_ids%'",
         connector_id,
     )
     seen: set[str] = set()
     for row in rows:
         try:
-            meta = json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"]
+            meta = (
+                json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"]
+            )
             seen.update(meta.get("incident_sys_ids", []))
         except Exception:
             pass
@@ -190,7 +198,8 @@ async def _existing_cluster_doc(conn, connector_id: int, cluster_key: str) -> in
     """Return doc_id of existing document for this cluster, or None."""
     row = await conn.fetchrow(
         "SELECT id FROM documents WHERE connector_id=$1 AND metadata::text LIKE $2",
-        connector_id, f'%"cluster_key": "{cluster_key}"%',
+        connector_id,
+        f'%"cluster_key": "{cluster_key}"%',
     )
     return row["id"] if row else None
 
@@ -209,15 +218,18 @@ async def _upsert_cluster_doc(
     from rag_chatbot.embeddings.gemini_embedder import embed_batch as _eb
     from rag_chatbot.ingestion.chunker import chunk_text as _ct
 
-    now = datetime.now(timezone.utc)
-    meta = json.dumps({
-        "source": "servicenow_incidents",
-        "cluster_key": cluster_key,
-        "incident_sys_ids": sys_ids,
-        "connector_id": connector_id,
-        "generated_at": now.isoformat(),
-    })
+    now = datetime.now(UTC)
+    meta = json.dumps(
+        {
+            "source": "servicenow_incidents",
+            "cluster_key": cluster_key,
+            "incident_sys_ids": sys_ids,
+            "connector_id": connector_id,
+            "generated_at": now.isoformat(),
+        }
+    )
     import hashlib
+
     content_hash = hashlib.sha256(text.encode()).hexdigest()
     source_url = f"{instance_url.rstrip('/')}/incident_list.do"
 
@@ -230,7 +242,11 @@ async def _upsert_cluster_doc(
         await conn.execute(
             """UPDATE documents SET title=$1, metadata=$2, content_hash=$3,
                last_synced_at=$4 WHERE id=$5""",
-            title, meta, content_hash, now, existing_doc_id,
+            title,
+            meta,
+            content_hash,
+            now,
+            existing_doc_id,
         )
         await conn.execute("DELETE FROM chunks WHERE doc_id=$1", existing_doc_id)
         doc_id = existing_doc_id
@@ -239,8 +255,14 @@ async def _upsert_cluster_doc(
             """INSERT INTO documents (title, source, metadata, org_id, connector_id,
                external_id, content_hash, last_synced_at)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id""",
-            title, source_url, meta, org_id, connector_id,
-            f"incident_cluster__{cluster_key}", content_hash, now,
+            title,
+            source_url,
+            meta,
+            org_id,
+            connector_id,
+            f"incident_cluster__{cluster_key}",
+            content_hash,
+            now,
         )
 
     chunks = _ct(text)
@@ -248,11 +270,15 @@ async def _upsert_cluster_doc(
         embeddings = await _eb(chunks, task_type="RETRIEVAL_DOCUMENT")
         await conn.executemany(
             "INSERT INTO chunks (doc_id, chunk_index, text, embedding) VALUES ($1,$2,$3,$4)",
-            [(doc_id, i, chunk, emb) for i, (chunk, emb) in enumerate(zip(chunks, embeddings))],
+            [
+                (doc_id, i, chunk, emb)
+                for i, (chunk, emb) in enumerate(zip(chunks, embeddings, strict=True))
+            ],
         )
 
 
 # ── main entry point ───────────────────────────────────────────────────────────
+
 
 async def process_incidents(
     pool,
@@ -265,7 +291,12 @@ async def process_incidents(
     Fetch, cluster, and ingest ServiceNow incidents as KB articles.
     Returns stats dict.
     """
-    stats = {"clusters_created": 0, "clusters_updated": 0, "incidents_processed": 0, "error": None}
+    stats: dict[str, Any] = {
+        "clusters_created": 0,
+        "clusters_updated": 0,
+        "incidents_processed": 0,
+        "error": None,
+    }
 
     try:
         connector = ServiceNowConnector(config)
@@ -279,6 +310,7 @@ async def process_incidents(
 
         # Enrich with work notes (batch: run concurrently per incident)
         import asyncio
+
         async def _enrich(inc: IncidentRecord) -> IncidentRecord:
             try:
                 inc.work_notes = await connector.fetch_work_notes(inc.sys_id)

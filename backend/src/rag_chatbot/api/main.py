@@ -13,18 +13,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
-from rag_chatbot.api.rate_limit import limiter, rate_limit_exceeded_handler
-from rag_chatbot.api.schemas import IngestTextRequest, IngestResponse
-from rag_chatbot.api.routers.chat import router as chat_router
-from rag_chatbot.api.routers.sessions import router as sessions_router
-from rag_chatbot.api.routers.curate import router as curate_router
-from rag_chatbot.api.routers.suggest import router as suggest_router
 from rag_chatbot.api.admin_router import router as admin_router
+from rag_chatbot.api.rate_limit import limiter, rate_limit_exceeded_handler
+from rag_chatbot.api.routers.chat import router as chat_router
+from rag_chatbot.api.routers.curate import router as curate_router
+from rag_chatbot.api.routers.sessions import router as sessions_router
+from rag_chatbot.api.routers.suggest import router as suggest_router
+from rag_chatbot.api.schemas import IngestResponse, IngestTextRequest
 from rag_chatbot.api.zitadel_enrich import router as enrich_router
 from rag_chatbot.auth.router import router as auth_router
 from rag_chatbot.config import settings

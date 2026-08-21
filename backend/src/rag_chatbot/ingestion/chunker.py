@@ -8,7 +8,9 @@ Produces chunks that map to coherent ideas rather than arbitrary token windows.
 TokenChunker (legacy): original fixed-size sliding-window chunker.
 Kept for backwards compatibility and as a fallback.
 """
+
 import re
+
 import tiktoken
 
 from rag_chatbot.config import settings
@@ -20,19 +22,21 @@ _enc = tiktoken.get_encoding("cl100k_base")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _token_len(text: str) -> int:
     return len(_enc.encode(text))
 
 
 def _split_sentences(text: str) -> list[str]:
     """Split a paragraph into sentences on '. ', '? ', '! '."""
-    parts = re.split(r'(?<=[.?!])\s+', text.strip())
+    parts = re.split(r"(?<=[.?!])\s+", text.strip())
     return [p for p in parts if p]
 
 
 # ---------------------------------------------------------------------------
 # SemanticChunker
 # ---------------------------------------------------------------------------
+
 
 def _semantic_chunks(text: str, size: int, overlap: int) -> list[str]:
     """
@@ -42,7 +46,7 @@ def _semantic_chunks(text: str, size: int, overlap: int) -> list[str]:
     4. Prepend overlap tail of previous chunk for context continuity.
     """
     # Step 1 — split into raw paragraphs / headings
-    raw = re.split(r'\n{2,}|(?=\n#{1,6}\s)', text)
+    raw = re.split(r"\n{2,}|(?=\n#{1,6}\s)", text)
     paragraphs = [p.strip() for p in raw if p.strip()]
 
     # Steps 2 & 3 — build atomic units (each fits within size)
@@ -96,6 +100,7 @@ def semantic_chunk_text(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # TokenChunker (legacy — fixed sliding window)
 # ---------------------------------------------------------------------------
+
 
 def chunk_text(text: str) -> list[str]:
     """Split text into overlapping token-bounded chunks (legacy strategy)."""

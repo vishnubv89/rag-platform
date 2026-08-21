@@ -22,8 +22,9 @@ Fix: reach Zitadel on the internal address (``ZITADEL_INTERNAL_URL``) while
 spoofing ``Host: localhost:8088`` so the instance lookup succeeds.  The ``iss``
 claim in the JWT is still validated against the public issuer URL.
 """
-from urllib.parse import urlparse
+
 from typing import Any
+from urllib.parse import urlparse
 
 import jwt
 from jwt import PyJWKClient, PyJWKClientError
@@ -80,6 +81,7 @@ def _get_jwks_client() -> PyJWKClient:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def oidc_enabled() -> bool:
     """True when a Zitadel issuer is configured."""
@@ -148,6 +150,7 @@ async def validate_oidc_token(raw_token: str) -> dict[str, Any]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 async def _claims_to_user(payload: dict[str, Any]) -> dict[str, Any]:
     """Map Zitadel JWT claims → internal user dict."""
     sub = payload.get("sub", "")
@@ -176,7 +179,7 @@ async def _claims_to_user(payload: dict[str, Any]) -> dict[str, Any]:
             role = "admin"
 
     return {
-        "id": sub,           # string, not int — callers that need int should cast
+        "id": sub,  # string, not int — callers that need int should cast
         "email": email,
         "name": name,
         "role": role,
@@ -211,6 +214,7 @@ async def _map_org_id(payload: dict[str, Any]) -> int | None:
         domain = email.rsplit("@", 1)[-1].lower()
         try:
             from rag_chatbot.db.connection import get_pool
+
             pool = await get_pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(

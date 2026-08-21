@@ -38,8 +38,14 @@ _SUGGEST_SYSTEM = (
 )
 
 _TOPIC_COLORS = [
-    "#4dabf7", "#69db7c", "#ffa94d", "#da77f2",
-    "#ff6b6b", "#38d9a9", "#ffd43b", "#a9e34b",
+    "#4dabf7",
+    "#69db7c",
+    "#ffa94d",
+    "#da77f2",
+    "#ff6b6b",
+    "#38d9a9",
+    "#ffd43b",
+    "#a9e34b",
 ]
 
 _STOP = frozenset(
@@ -74,7 +80,7 @@ def _keyword_topics(chunks: list[str], n_topics: int = 7) -> list[dict]:
     words = [w for w in words if w not in _STOP and len(w) > 3]
     uni = Counter(words)
     bi = Counter(
-        f"{words[i]} {words[i+1]}"
+        f"{words[i]} {words[i + 1]}"
         for i in range(len(words) - 1)
         if words[i] not in _STOP and words[i + 1] not in _STOP
     )
@@ -112,9 +118,7 @@ async def suggest(req: SuggestRequest, request: Request) -> SuggestResponse:
         docs = []
 
     if docs:
-        context_block = "\n\n".join(
-            f"[{d.get('doc_title','Unknown')}]\n{d['text']}" for d in docs
-        )
+        context_block = "\n\n".join(f"[{d.get('doc_title', 'Unknown')}]\n{d['text']}" for d in docs)
         prompt = f"Document so far:\n{req.context}\n\nReference material:\n{context_block}"
     else:
         prompt = f"Document so far:\n{req.context}"
@@ -127,11 +131,17 @@ async def suggest(req: SuggestRequest, request: Request) -> SuggestResponse:
     except Exception as e:
         msg = str(e)
         if "quota" in msg.lower() or "429" in msg or "resource_exhausted" in msg.lower():
-            raise HTTPException(status_code=429, detail="LLM quota exceeded. Please wait a moment.") from e
+            raise HTTPException(
+                status_code=429, detail="LLM quota exceeded. Please wait a moment."
+            ) from e
         raise HTTPException(status_code=500, detail="Internal error") from e
 
     sources = [
-        {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
+        {
+            "doc_id": d["doc_id"],
+            "doc_title": d.get("doc_title", ""),
+            "doc_source": d.get("doc_source", ""),
+        }
         for d in docs
     ]
     seen: set[int] = set()
@@ -169,8 +179,5 @@ async def get_doc_topics(request: Request, doc_id: int) -> dict:
         async with pool.acquire() as conn:
             await update_document_topics(conn, doc_id, json.dumps(raw))
 
-    topics = [
-        {**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]}
-        for i, t in enumerate(raw)
-    ]
+    topics = [{**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]} for i, t in enumerate(raw)]
     return {"doc_id": doc_id, "title": row["title"], "topics": topics}

@@ -8,6 +8,7 @@ Groups:
   /admin/analytics    — chat logs and token usage
   /admin/system       — health and migrations
 """
+
 import asyncio
 import hashlib
 import json
@@ -15,13 +16,13 @@ import secrets
 import tempfile
 from pathlib import Path as FPath
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from rag_chatbot.api.audit import log_action
 from rag_chatbot.api.deps import verify_admin_key
 from rag_chatbot.db.connection import get_pool, run_schema
-from rag_chatbot.ingestion.pipeline import ingest_text, ingest_file
+from rag_chatbot.ingestion.pipeline import ingest_file, ingest_text
 from rag_chatbot.llm.client import generate as _llm_generate
 
 Dep = Depends(verify_admin_key)
@@ -32,6 +33,7 @@ router = APIRouter(dependencies=[Dep])
 # ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
+
 
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
@@ -51,9 +53,11 @@ async def _resolve_org(org_id: int | None, conn) -> int:
 # Orgs
 # ─────────────────────────────────────────────
 
+
 class OrgCreate(BaseModel):
     name: str
     slug: str
+
 
 class OrgPatch(BaseModel):
     name: str | None = None
@@ -77,7 +81,8 @@ async def create_org(body: OrgCreate):
         try:
             row = await conn.fetchrow(
                 "INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id, name, slug",
-                body.name, body.slug,
+                body.name,
+                body.slug,
             )
         except Exception:
             raise HTTPException(status_code=409, detail="Name or slug already exists")
@@ -110,7 +115,8 @@ async def patch_org(org_id: int, body: OrgPatch):
         if body.is_active is not None:
             await conn.execute(
                 "UPDATE organizations SET is_active=$1, updated_at=now() WHERE id=$2",
-                body.is_active, org_id,
+                body.is_active,
+                org_id,
             )
         row = await conn.fetchrow(
             "SELECT id, name, slug, is_active FROM organizations WHERE id=$1", org_id
@@ -133,6 +139,7 @@ async def delete_org(org_id: int):
 # API Keys
 # ─────────────────────────────────────────────
 
+
 class KeyCreate(BaseModel):
     label: str = ""
 
@@ -142,7 +149,8 @@ async def list_keys(org_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT id, label, is_active, last_used, created_at FROM api_keys WHERE org_id=$1 ORDER BY id",
+            "SELECT id, label, is_active, last_used, created_at "
+            "FROM api_keys WHERE org_id=$1 ORDER BY id",
             org_id,
         )
     return [dict(r) for r in rows]
@@ -156,7 +164,9 @@ async def create_key(org_id: int, body: KeyCreate):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "INSERT INTO api_keys (org_id, key_hash, label) VALUES ($1,$2,$3) RETURNING id, label",
-            org_id, key_hash, body.label,
+            org_id,
+            key_hash,
+            body.label,
         )
     return {**dict(row), "key": raw, "note": "This is the only time the raw key is shown."}
 
@@ -196,7 +206,9 @@ async def list_docs(
             ORDER  BY d.id DESC
             LIMIT  $2 OFFSET $3
             """,
-            oid, limit, offset,
+            oid,
+            limit,
+            offset,
         )
         total = await conn.fetchval("SELECT COUNT(*) FROM documents WHERE org_id=$1", oid)
 
@@ -205,6 +217,7 @@ async def list_docs(
         meta = d.get("metadata") or {}
         if isinstance(meta, str):
             import json as _json
+
             try:
                 meta = _json.loads(meta)
             except Exception:
@@ -242,7 +255,10 @@ async def search_docs(
             ORDER  BY d.id DESC
             LIMIT  $4
             """,
-            oid, f"%{q}%", q, limit,
+            oid,
+            f"%{q}%",
+            q,
+            limit,
         )
     return {"items": [dict(r) for r in rows]}
 
@@ -252,7 +268,8 @@ async def get_doc(doc_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         doc = await conn.fetchrow(
-            "SELECT id, title, source, org_id, metadata, created_at FROM documents WHERE id=$1", doc_id
+            "SELECT id, title, source, org_id, metadata, created_at FROM documents WHERE id=$1",
+            doc_id,
         )
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -264,8 +281,14 @@ async def get_doc(doc_id: int):
 
 
 _TOPIC_COLORS = [
-    "#4dabf7", "#69db7c", "#ffa94d", "#da77f2",
-    "#ff6b6b", "#38d9a9", "#ffd43b", "#a9e34b",
+    "#4dabf7",
+    "#69db7c",
+    "#ffa94d",
+    "#da77f2",
+    "#ff6b6b",
+    "#38d9a9",
+    "#ffd43b",
+    "#a9e34b",
 ]
 
 _TOPICS_SYSTEM = (
@@ -304,10 +327,10 @@ def _keyword_topics(chunks: list, n_topics: int = 7) -> list[dict]:
 
     # Count unigrams and bigrams
     uni = Counter(words)
-    bi  = Counter(
-        f"{words[i]} {words[i+1]}"
+    bi = Counter(
+        f"{words[i]} {words[i + 1]}"
         for i in range(len(words) - 1)
-        if words[i] not in _STOP and words[i+1] not in _STOP
+        if words[i] not in _STOP and words[i + 1] not in _STOP
     )
 
     # Top bigrams become topic labels
@@ -324,10 +347,12 @@ def _keyword_topics(chunks: list, n_topics: int = 7) -> list[dict]:
         # Subtopics: other top unigrams contextually close (simple co-freq proxy)
         subs = [w for w, _ in uni.most_common(50) if w not in seen_words and w not in {w1, w2}][:3]
         seen_words.update(subs)
-        topics.append({
-            "label": phrase.title(),
-            "subtopics": [s.capitalize() for s in subs],
-        })
+        topics.append(
+            {
+                "label": phrase.title(),
+                "subtopics": [s.capitalize() for s in subs],
+            }
+        )
 
     return topics
 
@@ -342,9 +367,7 @@ async def get_doc_topics(doc_id: int, refresh: bool = Query(False)):
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        doc = await conn.fetchrow(
-            "SELECT id, title, topics FROM documents WHERE id=$1", doc_id
-        )
+        doc = await conn.fetchrow("SELECT id, title, topics FROM documents WHERE id=$1", doc_id)
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -392,8 +415,7 @@ async def get_doc_topics(doc_id: int, refresh: bool = Query(False)):
     if not topics:
         kw_topics = _keyword_topics(list(chunks))
         topics = [
-            {**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]}
-            for i, t in enumerate(kw_topics)
+            {**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]} for i, t in enumerate(kw_topics)
         ]
 
     # Persist (without the transient color field)
@@ -401,7 +423,8 @@ async def get_doc_topics(doc_id: int, refresh: bool = Query(False)):
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE documents SET topics=$1 WHERE id=$2",
-            json.dumps(topics_to_store), doc_id,
+            json.dumps(topics_to_store),
+            doc_id,
         )
 
     return {"doc_id": doc_id, "title": doc["title"], "topics": topics}
@@ -412,12 +435,12 @@ async def delete_doc(doc_id: int, org_id: int | None = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         oid = await _resolve_org(org_id, conn)
-        deleted = await conn.execute(
-            "DELETE FROM documents WHERE id=$1 AND org_id=$2", doc_id, oid
-        )
+        deleted = await conn.execute("DELETE FROM documents WHERE id=$1 AND org_id=$2", doc_id, oid)
         if deleted == "DELETE 0":
             raise HTTPException(status_code=404, detail="Document not found in this org")
-    await log_action(org_id=oid, user_id=None, action="delete", resource="document", resource_id=doc_id)
+    await log_action(
+        org_id=oid, user_id=None, action="delete", resource="document", resource_id=doc_id
+    )
 
 
 class TextIngestBody(BaseModel):
@@ -459,6 +482,7 @@ async def admin_ingest_file(
 # Config
 # ─────────────────────────────────────────────
 
+
 class ConfigUpdate(BaseModel):
     org_id: int | None = None
     settings: dict[str, str]
@@ -487,7 +511,9 @@ async def update_config(body: ConfigUpdate):
                 VALUES ($1, $2, $3)
                 ON CONFLICT (org_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()
                 """,
-                oid, key, value,
+                oid,
+                key,
+                value,
             )
     return {"org_id": oid, "updated": list(body.settings.keys())}
 
@@ -508,6 +534,7 @@ async def get_config_key(key: str, org_id: int | None = Query(None)):
 # ─────────────────────────────────────────────
 # Analytics
 # ─────────────────────────────────────────────
+
 
 @router.get("/analytics/summary")
 async def analytics_summary(
@@ -569,7 +596,7 @@ async def analytics_logs(
                    loop_count, latency_ms, created_at
             FROM   chat_logs WHERE {where}
             ORDER  BY created_at DESC
-            LIMIT  ${len(params)-1} OFFSET ${len(params)}
+            LIMIT  ${len(params) - 1} OFFSET ${len(params)}
             """,
             *params,
         )
@@ -607,7 +634,8 @@ async def token_usage(
             GROUP  BY DATE(created_at)
             ORDER  BY day
             """,
-            oid, str(days),
+            oid,
+            str(days),
         )
     return [dict(r) for r in rows]
 
@@ -639,7 +667,9 @@ async def top_sources(
             ORDER  BY citation_count DESC
             LIMIT  $3
             """,
-            oid, str(days), limit,
+            oid,
+            str(days),
+            limit,
         )
     return [dict(r) for r in rows]
 
@@ -664,7 +694,8 @@ async def topic_graph(
               AND  cl.created_at >= now() - ($2 || ' days')::INTERVAL
             GROUP  BY d.id, d.title, d.source
             """,
-            oid, str(days),
+            oid,
+            str(days),
         )
         # Co-citation count between document pairs → edge weight
         edge_rows = await conn.fetch(
@@ -685,7 +716,8 @@ async def topic_graph(
             GROUP  BY a.doc_id, b.doc_id
             HAVING COUNT(*) >= 1
             """,
-            oid, str(days),
+            oid,
+            str(days),
         )
     return {
         "nodes": [dict(r) for r in node_rows],
@@ -696,6 +728,7 @@ async def topic_graph(
 # ─────────────────────────────────────────────
 # System
 # ─────────────────────────────────────────────
+
 
 @router.get("/system/health")
 async def system_health():
@@ -720,6 +753,7 @@ async def run_migrations():
 # ─────────────────────────────────────────────
 # Connectors
 # ─────────────────────────────────────────────
+
 
 class ConnectorCreate(BaseModel):
     name: str
@@ -752,9 +786,13 @@ async def list_connectors(org_id: int | None = Query(None)):
 
 @router.post("/connectors", status_code=201)
 async def create_connector(body: ConnectorCreate):
-    from rag_chatbot.connectors.registry import get as get_connector, available_types
+    from rag_chatbot.connectors.registry import available_types
+    from rag_chatbot.connectors.registry import get as get_connector
+
     if body.connector_type not in available_types():
-        raise HTTPException(status_code=400, detail=f"Unknown connector type. Available: {available_types()}")
+        raise HTTPException(
+            status_code=400, detail=f"Unknown connector type. Available: {available_types()}"
+        )
 
     # Validate credentials
     connector = get_connector(body.connector_type, body.config)
@@ -764,14 +802,20 @@ async def create_connector(body: ConnectorCreate):
 
     pool = await get_pool()
     import json as _json
+
     async with pool.acquire() as conn:
         oid = await _resolve_org(body.org_id, conn)
         row = await conn.fetchrow(
-            """INSERT INTO connectors (org_id, name, connector_type, config, sync_interval_minutes)
+            """INSERT INTO connectors
+                   (org_id, name, connector_type, config, sync_interval_minutes)
                VALUES ($1,$2,$3,$4,$5)
-               RETURNING id, name, connector_type, is_active, sync_interval_minutes, last_sync_status""",
-            oid, body.name, body.connector_type,
-            _json.dumps(body.config), body.sync_interval_minutes,
+               RETURNING id, name, connector_type, is_active,
+                         sync_interval_minutes, last_sync_status""",
+            oid,
+            body.name,
+            body.connector_type,
+            _json.dumps(body.config),
+            body.sync_interval_minutes,
         )
     return dict(row)
 
@@ -779,6 +823,7 @@ async def create_connector(body: ConnectorCreate):
 @router.get("/connectors/types")
 async def connector_types():
     from rag_chatbot.connectors.registry import available_types
+
     return {"types": available_types()}
 
 
@@ -804,24 +849,46 @@ async def get_connector_detail(connector_id: int):
 
 
 @router.patch("/connectors/{connector_id}")
-async def patch_connector(connector_id: int, body: ConnectorPatch, org_id: int | None = Query(None)):
+async def patch_connector(
+    connector_id: int, body: ConnectorPatch, org_id: int | None = Query(None)
+):
     pool = await get_pool()
     import json as _json
+
     async with pool.acquire() as conn:
         oid = await _resolve_org(org_id, conn)
-        row = await conn.fetchrow("SELECT * FROM connectors WHERE id=$1 AND org_id=$2", connector_id, oid)
+        row = await conn.fetchrow(
+            "SELECT * FROM connectors WHERE id=$1 AND org_id=$2", connector_id, oid
+        )
         if not row:
             raise HTTPException(status_code=404, detail="Connector not found in this org")
         if body.name is not None:
-            await conn.execute("UPDATE connectors SET name=$1, updated_at=now() WHERE id=$2", body.name, connector_id)
+            await conn.execute(
+                "UPDATE connectors SET name=$1, updated_at=now() WHERE id=$2",
+                body.name,
+                connector_id,
+            )
         if body.config is not None:
-            await conn.execute("UPDATE connectors SET config=$1, updated_at=now() WHERE id=$2", _json.dumps(body.config), connector_id)
+            await conn.execute(
+                "UPDATE connectors SET config=$1, updated_at=now() WHERE id=$2",
+                _json.dumps(body.config),
+                connector_id,
+            )
         if body.is_active is not None:
-            await conn.execute("UPDATE connectors SET is_active=$1, updated_at=now() WHERE id=$2", body.is_active, connector_id)
+            await conn.execute(
+                "UPDATE connectors SET is_active=$1, updated_at=now() WHERE id=$2",
+                body.is_active,
+                connector_id,
+            )
         if body.sync_interval_minutes is not None:
-            await conn.execute("UPDATE connectors SET sync_interval_minutes=$1, updated_at=now() WHERE id=$2", body.sync_interval_minutes, connector_id)
+            await conn.execute(
+                "UPDATE connectors SET sync_interval_minutes=$1, updated_at=now() WHERE id=$2",
+                body.sync_interval_minutes,
+                connector_id,
+            )
         updated = await conn.fetchrow(
-            "SELECT id, name, connector_type, is_active, sync_interval_minutes, last_sync_status FROM connectors WHERE id=$1",
+            "SELECT id, name, connector_type, is_active, "
+            "sync_interval_minutes, last_sync_status FROM connectors WHERE id=$1",
             connector_id,
         )
     return dict(updated)
@@ -837,18 +904,28 @@ async def delete_connector(connector_id: int, org_id: int | None = Query(None)):
         )
         if deleted == "DELETE 0":
             raise HTTPException(status_code=404, detail="Connector not found in this org")
-    await log_action(org_id=oid, user_id=None, action="delete", resource="connector", resource_id=connector_id)
+    await log_action(
+        org_id=oid, user_id=None, action="delete", resource="connector", resource_id=connector_id
+    )
 
 
 @router.post("/connectors/{connector_id}/sync")
 async def trigger_sync(connector_id: int):
     import asyncio
+
     from rag_chatbot.connectors.sync_engine import run_sync
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT org_id FROM connectors WHERE id=$1", connector_id)
     asyncio.create_task(run_sync(connector_id))
-    await log_action(org_id=row["org_id"] if row else None, user_id=None, action="sync", resource="connector", resource_id=connector_id)
+    await log_action(
+        org_id=row["org_id"] if row else None,
+        user_id=None,
+        action="sync",
+        resource="connector",
+        resource_id=connector_id,
+    )
     return {"status": "sync triggered", "connector_id": connector_id}
 
 
@@ -860,7 +937,8 @@ async def connector_jobs(connector_id: int, limit: int = Query(20, ge=1, le=100)
             """SELECT id, status, docs_added, docs_updated, docs_deleted,
                       error_message, started_at, finished_at
                FROM sync_jobs WHERE connector_id=$1 ORDER BY started_at DESC LIMIT $2""",
-            connector_id, limit,
+            connector_id,
+            limit,
         )
     return [dict(r) for r in rows]
 
@@ -869,16 +947,26 @@ async def connector_jobs(connector_id: int, limit: int = Query(20, ge=1, le=100)
 # Knowledge Health
 # ─────────────────────────────────────────────
 
+
 @router.get("/knowledge/health")
 async def knowledge_health(org_id: int | None = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         oid = await _resolve_org(org_id, conn)
         row = await conn.fetchrow("SELECT * FROM knowledge_health WHERE org_id=$1", oid)
-    return dict(row) if row else {
-        "org_id": oid, "total_docs": 0, "total_chunks": 0,
-        "stale_docs": 0, "open_conflicts": 0, "active_connectors": 0, "freshness_pct": 100,
-    }
+    return (
+        dict(row)
+        if row
+        else {
+            "org_id": oid,
+            "total_docs": 0,
+            "total_chunks": 0,
+            "stale_docs": 0,
+            "open_conflicts": 0,
+            "active_connectors": 0,
+            "freshness_pct": 100,
+        }
+    )
 
 
 @router.get("/knowledge/conflicts")
@@ -900,7 +988,8 @@ async def list_conflicts(
                JOIN documents db ON db.id = cb.doc_id
                WHERE kc.org_id=$1 AND kc.status=$2
                ORDER BY kc.created_at DESC""",
-            oid, status,
+            oid,
+            status,
         )
     return [dict(r) for r in rows]
 
@@ -911,7 +1000,9 @@ class ConflictResolve(BaseModel):
 
 
 @router.patch("/knowledge/conflicts/{conflict_id}")
-async def resolve_conflict(conflict_id: int, body: ConflictResolve, org_id: int | None = Query(None)):
+async def resolve_conflict(
+    conflict_id: int, body: ConflictResolve, org_id: int | None = Query(None)
+):
     if body.status not in ("resolved", "dismissed"):
         raise HTTPException(status_code=400, detail="status must be 'resolved' or 'dismissed'")
     pool = await get_pool()
@@ -921,7 +1012,10 @@ async def resolve_conflict(conflict_id: int, body: ConflictResolve, org_id: int 
             """UPDATE knowledge_conflicts
                SET status=$1, resolved_doc_id=$2, resolved_at=now()
                WHERE id=$3 AND org_id=$4""",
-            body.status, body.resolved_doc_id, conflict_id, oid,
+            body.status,
+            body.resolved_doc_id,
+            conflict_id,
+            oid,
         )
         if updated == "UPDATE 0":
             raise HTTPException(status_code=404, detail="Conflict not found in this org")
@@ -947,7 +1041,9 @@ async def stale_documents(
                       OR d.last_synced_at IS NULL)
                ORDER BY d.last_synced_at ASC NULLS FIRST
                LIMIT $3""",
-            oid, str(days), limit,
+            oid,
+            str(days),
+            limit,
         )
     return [dict(r) for r in rows]
 
@@ -956,12 +1052,14 @@ async def stale_documents(
 # Users
 # ─────────────────────────────────────────────
 
+
 class UserCreate(BaseModel):
     email: str
     name: str
     password: str
     role: str = "member"
     org_id: int | None = None
+
 
 class UserPatch(BaseModel):
     name: str | None = None
@@ -980,7 +1078,8 @@ async def list_users(org_id: int | None = Query(None)):
                 """SELECT u.id, u.email, u.name, u.role, u.org_id, u.is_active,
                           u.created_at, u.last_login_at, o.name AS org_name
                    FROM users u LEFT JOIN organizations o ON o.id = u.org_id
-                   WHERE u.org_id=$1 ORDER BY u.created_at DESC""", org_id
+                   WHERE u.org_id=$1 ORDER BY u.created_at DESC""",
+                org_id,
             )
         else:
             rows = await conn.fetch(
@@ -995,6 +1094,7 @@ async def list_users(org_id: int | None = Query(None)):
 @router.post("/users", status_code=201)
 async def create_user(body: UserCreate):
     from rag_chatbot.auth.password import hash_password
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         existing = await conn.fetchval("SELECT id FROM users WHERE email=$1", body.email)
@@ -1003,10 +1103,20 @@ async def create_user(body: UserCreate):
         user_id = await conn.fetchval(
             """INSERT INTO users (email, name, password_hash, role, org_id)
                VALUES ($1,$2,$3,$4,$5) RETURNING id""",
-            body.email, body.name, hash_password(body.password), body.role, body.org_id,
+            body.email,
+            body.name,
+            hash_password(body.password),
+            body.role,
+            body.org_id,
         )
-    await log_action(org_id=body.org_id, user_id=None, action="create", resource="user",
-                     resource_id=user_id, detail={"email": body.email, "role": body.role})
+    await log_action(
+        org_id=body.org_id,
+        user_id=None,
+        action="create",
+        resource="user",
+        resource_id=user_id,
+        detail={"email": body.email, "role": body.role},
+    )
     return {"id": user_id, "email": body.email}
 
 
@@ -1027,8 +1137,12 @@ async def update_user(user_id: int, body: UserPatch):
             await conn.execute("UPDATE users SET is_active=$1 WHERE id=$2", body.is_active, user_id)
         if body.password is not None:
             from rag_chatbot.auth.password import hash_password
-            await conn.execute("UPDATE users SET password_hash=$1 WHERE id=$2",
-                               hash_password(body.password), user_id)
+
+            await conn.execute(
+                "UPDATE users SET password_hash=$1 WHERE id=$2",
+                hash_password(body.password),
+                user_id,
+            )
     return {"id": user_id}
 
 
@@ -1038,12 +1152,20 @@ async def delete_user(user_id: int):
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT org_id, email FROM users WHERE id=$1", user_id)
         await conn.execute("DELETE FROM users WHERE id=$1", user_id)
-    await log_action(org_id=row["org_id"] if row else None, user_id=None, action="delete",
-                     resource="user", resource_id=user_id, detail={"email": row["email"] if row else ""})
+    await log_action(
+        org_id=row["org_id"] if row else None,
+        user_id=None,
+        action="delete",
+        resource="user",
+        resource_id=user_id,
+        detail={"email": row["email"] if row else ""},
+    )
+
 
 # ─────────────────────────────────────────────
 # Audit Log
 # ─────────────────────────────────────────────
+
 
 @router.get("/audit")
 async def list_audit(
@@ -1069,9 +1191,7 @@ async def list_audit(
             """,
             *args,
         )
-        total = await conn.fetchval(
-            f"SELECT COUNT(*) FROM audit_logs a {where}", *args
-        )
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM audit_logs a {where}", *args)
     return {
         "total": total,
         "items": [
@@ -1090,6 +1210,7 @@ async def list_audit(
 # Roles take effect on the user's next SSO login (no cache to flush).
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class SsoRoleUpsert(BaseModel):
     email: str
     role: str  # "admin" | "member" | "superadmin"
@@ -1100,7 +1221,7 @@ async def list_sso_roles(org_id: int):
     """List all SSO user role overrides for an org."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await _resolve_org(org_id, conn)   # 404 if org missing
+        await _resolve_org(org_id, conn)  # 404 if org missing
         rows = await conn.fetch(
             """
             SELECT email, org_id, role, created_at
@@ -1111,8 +1232,12 @@ async def list_sso_roles(org_id: int):
             org_id,
         )
     return [
-        {"email": r["email"], "org_id": r["org_id"],
-         "role": r["role"], "created_at": str(r["created_at"])}
+        {
+            "email": r["email"],
+            "org_id": r["org_id"],
+            "role": r["role"],
+            "created_at": str(r["created_at"]),
+        }
         for r in rows
     ]
 
@@ -1139,7 +1264,9 @@ async def upsert_sso_role(org_id: int, body: SsoRoleUpsert):
                 SET org_id = EXCLUDED.org_id,
                     role   = EXCLUDED.role
             """,
-            email, org_id, body.role,
+            email,
+            org_id,
+            body.role,
         )
     return {"email": email, "org_id": org_id, "role": body.role}
 
@@ -1154,7 +1281,8 @@ async def delete_sso_role(org_id: int, email: str):
     async with pool.acquire() as conn:
         result = await conn.execute(
             "DELETE FROM sso_user_roles WHERE email = $1 AND org_id = $2",
-            email.lower(), org_id,
+            email.lower(),
+            org_id,
         )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="SSO role override not found")

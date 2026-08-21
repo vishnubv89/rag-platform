@@ -20,6 +20,7 @@ Setup:
   3. Share the target folder(s) with the service account email (Viewer role).
   4. Paste the full JSON key string as service_account_json in connector config.
 """
+
 import io
 import json
 import re
@@ -62,23 +63,28 @@ def _service_account_jwt(sa_info: dict) -> str:
     """Build a signed JWT assertion for service account auth."""
     import base64
     import time
+
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding
 
     now = int(time.time())
-    header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256", "typ": "JWT"}).encode()).rstrip(b"=")
-    payload = base64.urlsafe_b64encode(json.dumps({
-        "iss": sa_info["client_email"],
-        "scope": _SCOPE,
-        "aud": _TOKEN_URL,
-        "iat": now,
-        "exp": now + 3600,
-    }).encode()).rstrip(b"=")
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256", "typ": "JWT"}).encode()).rstrip(
+        b"="
+    )
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "iss": sa_info["client_email"],
+                "scope": _SCOPE,
+                "aud": _TOKEN_URL,
+                "iat": now,
+                "exp": now + 3600,
+            }
+        ).encode()
+    ).rstrip(b"=")
 
     signing_input = header + b"." + payload
-    private_key = serialization.load_pem_private_key(
-        sa_info["private_key"].encode(), password=None
-    )
+    private_key = serialization.load_pem_private_key(sa_info["private_key"].encode(), password=None)
     sig = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
     sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=")
     return (signing_input + b"." + sig_b64).decode()
@@ -87,10 +93,13 @@ def _service_account_jwt(sa_info: dict) -> str:
 async def _get_access_token(sa_info: dict) -> str:
     jwt = _service_account_jwt(sa_info)
     async with httpx.AsyncClient() as client:
-        r = await client.post(_TOKEN_URL, data={
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            "assertion": jwt,
-        })
+        r = await client.post(
+            _TOKEN_URL,
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": jwt,
+            },
+        )
         r.raise_for_status()
         return r.json()["access_token"]
 
@@ -161,12 +170,16 @@ class GDriveConnector(BaseConnector):
                 data = r.json()
 
                 for f in data.get("files", []):
-                    results.append(RemoteDocument(
-                        external_id=f["id"],
-                        title=f.get("name", f["id"]),
-                        source_url=f.get("webViewLink", f"https://drive.google.com/file/d/{f['id']}"),
-                        updated_at=f.get("modifiedTime", ""),
-                    ))
+                    results.append(
+                        RemoteDocument(
+                            external_id=f["id"],
+                            title=f.get("name", f["id"]),
+                            source_url=f.get(
+                                "webViewLink", f"https://drive.google.com/file/d/{f['id']}"
+                            ),
+                            updated_at=f.get("modifiedTime", ""),
+                        )
+                    )
 
                 page_token = data.get("nextPageToken")
                 if not page_token:
@@ -206,10 +219,9 @@ class GDriveConnector(BaseConnector):
                 # Extract text from PDF bytes
                 try:
                     import pypdf
+
                     reader = pypdf.PdfReader(io.BytesIO(r.content))
-                    text = "\n".join(
-                        page.extract_text() or "" for page in reader.pages
-                    )
+                    text = "\n".join(page.extract_text() or "" for page in reader.pages)
                 except Exception:
                     text = r.text
             else:

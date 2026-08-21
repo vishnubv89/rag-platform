@@ -7,10 +7,10 @@ module rather than from individual router files to avoid circular imports.
 
 from pydantic import BaseModel
 
-
 # ---------------------------------------------------------------------------
 # Chat schemas
 # ---------------------------------------------------------------------------
+
 
 class ChatRequest(BaseModel):
     """Request body for /chat and /chat/stream endpoints."""
@@ -41,6 +41,7 @@ class FeedbackRequest(BaseModel):
 # Follow-up schemas
 # ---------------------------------------------------------------------------
 
+
 class FollowUpRequest(BaseModel):
     """Request body for /chat/followup — generate follow-up questions."""
 
@@ -57,6 +58,7 @@ class FollowUpResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Suggest schemas
 # ---------------------------------------------------------------------------
+
 
 class SuggestRequest(BaseModel):
     """Request body for /suggest — next-paragraph writing assistance."""
@@ -75,6 +77,7 @@ class SuggestResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Curate schemas
 # ---------------------------------------------------------------------------
+
 
 class CurateRequest(BaseModel):
     """Request body for /curate — KCS/ITIL knowledge article improvement."""
@@ -116,7 +119,7 @@ class CurateSyncRequest(BaseModel):
     content: str
     category_sys_id: str
     publish: bool = False
-    external_id: str | None = None   # existing SN sys_id → PATCH; None → POST
+    external_id: str | None = None  # existing SN sys_id → PATCH; None → POST
     org_id: int | None = None
 
 
@@ -125,12 +128,13 @@ class CurateSyncResponse(BaseModel):
 
     sys_id: str
     url: str
-    action: str   # "created" | "updated"
+    action: str  # "created" | "updated"
 
 
 # ---------------------------------------------------------------------------
 # Ingest schemas
 # ---------------------------------------------------------------------------
+
 
 class IngestTextRequest(BaseModel):
     """Request body for /ingest/text — ingest a plain-text document."""

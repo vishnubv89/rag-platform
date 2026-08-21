@@ -22,9 +22,7 @@ async def get_document(
     Returns:
         Record with id, title, topics columns, or None if not found.
     """
-    return await conn.fetchrow(
-        "SELECT id, title, topics FROM documents WHERE id=$1", doc_id
-    )
+    return await conn.fetchrow("SELECT id, title, topics FROM documents WHERE id=$1", doc_id)
 
 
 async def get_document_chunks(

@@ -8,6 +8,7 @@ Flow: contextualize → intent → retriever → grader → generator
 contextualize_node rewrites follow-up questions into standalone questions using
 prior conversation history so that all downstream nodes receive a self-contained query.
 """
+
 import asyncio
 import json
 import logging
@@ -16,15 +17,19 @@ import re
 from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.runnables import RunnableConfig
 
+from rag_chatbot.agent.state import AgentState
+from rag_chatbot.connectors.snow_token_exchange import exchange_for_snow_token, snow_kb_search
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.llm.client import (
     generate as _generate,
+)
+from rag_chatbot.llm.client import (
     generate_with_usage as _generate_with_usage,
+)
+from rag_chatbot.llm.client import (
     stream_generate as _stream_generate,
 )
 from rag_chatbot.retrieval.vector_store import hybrid_search
-from rag_chatbot.connectors.snow_token_exchange import exchange_for_snow_token, snow_kb_search
-from rag_chatbot.agent.state import AgentState
 
 _log = logging.getLogger(__name__)
 
@@ -59,8 +64,7 @@ async def contextualize_node(state: AgentState) -> dict:
     # Build history from the last 6 prior messages (up to 3 exchanges)
     prior_messages = messages[:-1][-6:]
     history = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-        for m in prior_messages
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in prior_messages
     )
 
     prompt = (
@@ -101,7 +105,7 @@ _KB_OVERVIEW_RE = re.compile(
 # regardless of other signals (overrides _KB_OVERVIEW_RE).
 _SPECIFIC_DOC_RE = re.compile(
     r"\b\w[\w\-]*\.(pdf|md|docx|txt|xlsx|pptx|csv|json|html)\b|"  # filename.ext
-    r"\b\d{4}\.\d{4,}v?\d*\b",                                     # arxiv-style IDs
+    r"\b\d{4}\.\d{4,}v?\d*\b",  # arxiv-style IDs
     re.IGNORECASE,
 )
 
@@ -114,38 +118,52 @@ _CHITCHAT_RE = re.compile(
 )
 
 _ACTION_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("servicenow_create_incident", re.compile(
-        r"(create|file|open|raise|log)\s+(an?\s+)?(incident|ticket|case|outage|p[1-4])",
-        re.IGNORECASE
-    )),
-    ("servicenow_resolve_incident", re.compile(
-        r"(res[lo]{1,2}ve|close|fix|mark.{0,10}resolved|mark.{0,10}fixed)\s+(the\s+)?(incident|ticket|case|INC\d+)",
-        re.IGNORECASE
-    )),
-    ("servicenow_resolve_incident", re.compile(
-        r"(res[lo]{1,2}ve|close)\s+INC\d+",
-        re.IGNORECASE
-    )),
-    ("servicenow_create_change", re.compile(
-        r"(create|submit|raise|open)\s+(an?\s+)?(change\s+request|change\s+ticket|RFC|CHG)",
-        re.IGNORECASE
-    )),
-    ("jira_create_issue", re.compile(
-        r"(create|file|open|add|log)\s+(an?\s+)?(jira\s+)?(issue|bug|story|task|ticket)",
-        re.IGNORECASE
-    )),
-    ("jira_triage_issue", re.compile(
-        r"(triage|transition|update|move|close|resolve)\s+(jira\s+)?(issue|ticket|bug)\s+([A-Z]+-\d+)",
-        re.IGNORECASE
-    )),
-    ("slack_send_message", re.compile(
-        r"(send|post|notify|message|alert)\s+.{0,40}(slack|channel|#[a-z])",
-        re.IGNORECASE
-    )),
-    ("teams_send_message", re.compile(
-        r"(send|post|notify|message|alert)\s+.{0,40}(teams|ms\s+teams)",
-        re.IGNORECASE
-    )),
+    (
+        "servicenow_create_incident",
+        re.compile(
+            r"(create|file|open|raise|log)\s+(an?\s+)?(incident|ticket|case|outage|p[1-4])",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "servicenow_resolve_incident",
+        re.compile(
+            r"(res[lo]{1,2}ve|close|fix|mark.{0,10}resolved|mark.{0,10}fixed)\s+(the\s+)?(incident|ticket|case|INC\d+)",
+            re.IGNORECASE,
+        ),
+    ),
+    ("servicenow_resolve_incident", re.compile(r"(res[lo]{1,2}ve|close)\s+INC\d+", re.IGNORECASE)),
+    (
+        "servicenow_create_change",
+        re.compile(
+            r"(create|submit|raise|open)\s+(an?\s+)?(change\s+request|change\s+ticket|RFC|CHG)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "jira_create_issue",
+        re.compile(
+            r"(create|file|open|add|log)\s+(an?\s+)?(jira\s+)?(issue|bug|story|task|ticket)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "jira_triage_issue",
+        re.compile(
+            r"(triage|transition|update|move|close|resolve)\s+(jira\s+)?(issue|ticket|bug)\s+([A-Z]+-\d+)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "slack_send_message",
+        re.compile(
+            r"(send|post|notify|message|alert)\s+.{0,40}(slack|channel|#[a-z])", re.IGNORECASE
+        ),
+    ),
+    (
+        "teams_send_message",
+        re.compile(r"(send|post|notify|message|alert)\s+.{0,40}(teams|ms\s+teams)", re.IGNORECASE),
+    ),
 ]
 
 
@@ -157,11 +175,7 @@ async def intent_node(state: AgentState) -> dict:
     # A query that references a specific document/file must always go through
     # retrieval — never short-circuit to the overview path.
     has_specific_doc = bool(_SPECIFIC_DOC_RE.search(query))
-    is_overview = (
-        bool(_KB_OVERVIEW_RE.search(query))
-        and not is_chitchat
-        and not has_specific_doc
-    )
+    is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat and not has_specific_doc
 
     action_intent = None
     for action_name, pattern in _ACTION_PATTERNS:
@@ -172,7 +186,11 @@ async def intent_node(state: AgentState) -> dict:
     skip = is_chitchat or is_overview or (action_intent is not None)
     _log.info(
         "intent_node | query=%r chitchat=%s overview=%s specific_doc=%s action=%s",
-        query[:80], is_chitchat, is_overview, has_specific_doc, action_intent,
+        query[:80],
+        is_chitchat,
+        is_overview,
+        has_specific_doc,
+        action_intent,
     )
     return {
         "skip_retrieval": skip,
@@ -185,6 +203,7 @@ async def intent_node(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 # Retriever
 # ---------------------------------------------------------------------------
+
 
 async def retriever_node(state: AgentState) -> dict:
     """
@@ -238,6 +257,7 @@ async def _obo_search(query: str, zitadel_token: str, org_id: int) -> list[dict]
         return []
 
     import json as _json
+
     obo_docs: list[dict] = []
     for row in rows:
         cfg = row["config"] if isinstance(row["config"], dict) else _json.loads(row["config"])
@@ -261,9 +281,7 @@ def _merge_docs(pgvector_docs: list[dict], obo_docs: list[dict]) -> list[dict]:
     pgvector results take precedence (they are already ranked); OBO results are
     appended for articles not already present.
     """
-    seen: set[str] = {
-        d["external_id"] for d in pgvector_docs if d.get("external_id")
-    }
+    seen: set[str] = {d["external_id"] for d in pgvector_docs if d.get("external_id")}
     merged = list(pgvector_docs)
     for doc in obo_docs:
         ext_id = doc.get("external_id")
@@ -364,6 +382,7 @@ async def rewriter_node(state: AgentState) -> dict:
 # Generator
 # ---------------------------------------------------------------------------
 
+
 async def _stream_llm(
     prompt: str, system: str, cfg: dict, config: RunnableConfig
 ) -> tuple[str, int, int]:
@@ -450,7 +469,9 @@ async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
         "Provide a concise overview of the topics covered, grouping related documents."
     )
 
-    answer, pt, ct = await _stream_llm(prompt, _apply_org_persona(_KB_OVERVIEW_SYSTEM, cfg), cfg, config)
+    answer, pt, ct = await _stream_llm(
+        prompt, _apply_org_persona(_KB_OVERVIEW_SYSTEM, cfg), cfg, config
+    )
 
     return {
         "answer": answer,
@@ -510,14 +531,13 @@ def _build_history_block(messages: list[dict]) -> str:
     if not prior:
         return ""
     return "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-        for m in prior
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in prior
     )
 
 
 async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
     messages = state["messages"]
-    query = messages[-1]["content"]   # original user message (for display)
+    query = messages[-1]["content"]  # original user message (for display)
     docs = state["retrieved_docs"]
     cfg = state.get("llm_config", {})
     skip = state.get("skip_retrieval", False)
@@ -537,8 +557,7 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
         )
         if history_block:
             prompt = (
-                f"Conversation so far:\n{history_block}\n\n"
-                f"User: {query}\n\nContext:\n{context}"
+                f"Conversation so far:\n{history_block}\n\nUser: {query}\n\nContext:\n{context}"
             )
         else:
             prompt = f"Question: {query}\n\nContext:\n{context}"
@@ -570,6 +589,7 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
 # Clarify — fires when grading exhausted without finding relevant docs
 # ---------------------------------------------------------------------------
 
+
 async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
     query = state["messages"][-1]["content"]
     cfg = state.get("llm_config", {})
@@ -595,13 +615,20 @@ async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
 # Action node — execute detected action intents (tickets, notifications, etc.)
 # ---------------------------------------------------------------------------
 
+
 async def action_node(state: AgentState, config: RunnableConfig) -> dict:
     """
     Execute the detected action (create ticket, send notification, etc.).
     Uses LLM to extract structured params from the query, then dispatches.
     """
     import json as _json
-    from rag_chatbot.agent.actions import servicenow_actions, jira_actions, notify  # noqa: F401 trigger registration
+
+    from rag_chatbot.agent.actions import (  # noqa: F401 trigger registration
+        jira_actions,
+        notify,
+        servicenow_actions,
+    )
+
     _log.info("action_node | intent=%s org_id=%s", state.get("action_intent"), state.get("org_id"))
     from rag_chatbot.agent.actions.registry import dispatch as _dispatch_action
 
@@ -652,7 +679,11 @@ async def action_node(state: AgentState, config: RunnableConfig) -> dict:
 
     return {
         "answer": answer,
-        "action_result": {"success": result.success, "message": result.message, "data": result.data},
+        "action_result": {
+            "success": result.success,
+            "message": result.message,
+            "data": result.data,
+        },
         "source_chunk_ids": [],
         "sources": [],
         "messages": [{"role": "assistant", "content": answer}],

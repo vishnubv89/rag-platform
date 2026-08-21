@@ -6,7 +6,7 @@ from pathlib import Path
 from rag_chatbot.db.connection import get_pool, run_schema
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
 from rag_chatbot.ingestion.chunker import semantic_chunk_text as chunk_text
-from rag_chatbot.ingestion.dlp import scan_text, DLPBlockedError
+from rag_chatbot.ingestion.dlp import DLPBlockedError, scan_text
 from rag_chatbot.ingestion.loader import load_file
 
 
@@ -40,7 +40,8 @@ async def ingest_file(
         # fails, the document row is rolled back too (no orphan 0-chunk docs).
         async with conn.transaction():
             doc_id = await conn.fetchval(
-                "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+                "INSERT INTO documents (title, source, metadata, org_id) "
+                "VALUES ($1, $2, $3, $4) RETURNING id",
                 title,
                 source or str(p),
                 json.dumps(metadata or {}),
@@ -77,7 +78,8 @@ async def ingest_text(
     async with pool.acquire() as conn:
         async with conn.transaction():
             doc_id = await conn.fetchval(
-                "INSERT INTO documents (title, source, metadata, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+                "INSERT INTO documents (title, source, metadata, org_id) "
+                "VALUES ($1, $2, $3, $4) RETURNING id",
                 title,
                 source,
                 json.dumps(metadata or {}),
@@ -92,6 +94,7 @@ async def ingest_text(
 
 
 if __name__ == "__main__":
+
     async def main():
         if len(sys.argv) < 2:
             print("Usage: python -m rag_chatbot.ingestion.pipeline <file>")

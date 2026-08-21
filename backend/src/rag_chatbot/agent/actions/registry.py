@@ -4,8 +4,10 @@ Action registry — maps action_type strings to async callables.
 An action callable receives (params: dict, state: AgentState) and returns
 ActionResult(success, message, data).
 """
+
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 from rag_chatbot.agent.state import AgentState  # forward-ref OK
 
@@ -13,7 +15,7 @@ from rag_chatbot.agent.state import AgentState  # forward-ref OK
 @dataclass
 class ActionResult:
     success: bool
-    message: str                    # human-readable outcome
+    message: str  # human-readable outcome
     data: dict = field(default_factory=dict)  # structured response (ticket ID, link, etc.)
 
 
@@ -26,6 +28,7 @@ def register_action(name: str):
     def decorator(fn: ActionFn) -> ActionFn:
         _REGISTRY[name] = fn
         return fn
+
     return decorator
 
 

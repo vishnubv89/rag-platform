@@ -14,6 +14,7 @@ The endpoint is reachable only within the Docker/K8s internal network
 AND requires X-Zitadel-Secret to match ZITADEL_ACTION_SECRET.
 Never expose this path through a public ingress.
 """
+
 import logging
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -50,11 +51,13 @@ async def enrich(
     """
     # Validate shared secret
     if not settings.zitadel_action_secret:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Action secret not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Action secret not configured"
+        )
     if x_zitadel_secret != settings.zitadel_action_secret:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Invalid action secret")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid action secret"
+        )
 
     email = body.email.strip().lower()
     domain = email.rsplit("@", 1)[-1] if "@" in email else ""
@@ -67,8 +70,12 @@ async def enrich(
             email,
         )
         if user_row:
-            _log.info("enrich: %s → org=%s role=%s (user override)",
-                      email, user_row["org_id"], user_row["role"])
+            _log.info(
+                "enrich: %s → org=%s role=%s (user override)",
+                email,
+                user_row["org_id"],
+                user_row["role"],
+            )
             return EnrichResponse(org_id=user_row["org_id"], role=user_row["role"])
 
         # 2. Fall back to domain default
@@ -78,8 +85,12 @@ async def enrich(
                 domain,
             )
             if domain_row:
-                _log.info("enrich: %s → org=%s role=%s (domain default)",
-                          email, domain_row["org_id"], domain_row["default_role"])
+                _log.info(
+                    "enrich: %s → org=%s role=%s (domain default)",
+                    email,
+                    domain_row["org_id"],
+                    domain_row["default_role"],
+                )
                 return EnrichResponse(
                     org_id=domain_row["org_id"],
                     role=domain_row["default_role"],

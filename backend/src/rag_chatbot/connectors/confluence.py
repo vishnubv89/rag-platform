@@ -8,6 +8,7 @@ Config keys:
   space_key   (optional) limit to a specific Confluence space key e.g. KB
   cloud       true | false  (default true — Cloud uses /wiki prefix)
 """
+
 import re
 
 import httpx
@@ -77,12 +78,14 @@ class ConfluenceConnector(BaseConnector):
                 r.raise_for_status()
                 data = r.json()
                 for page in data.get("results", []):
-                    results.append(RemoteDocument(
-                        external_id=page["id"],
-                        title=page["title"],
-                        source_url=f"{self._base()}/pages/{page['id']}",
-                        updated_at=page["version"]["when"],
-                    ))
+                    results.append(
+                        RemoteDocument(
+                            external_id=page["id"],
+                            title=page["title"],
+                            source_url=f"{self._base()}/pages/{page['id']}",
+                            updated_at=page["version"]["when"],
+                        )
+                    )
                 if data.get("_links", {}).get("next"):
                     start += len(data["results"])
                 else:

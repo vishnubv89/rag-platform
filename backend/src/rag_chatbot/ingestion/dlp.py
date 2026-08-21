@@ -9,6 +9,7 @@ Two modes:
 Returns DLPResult(allowed, findings) where findings is a list of
 {detector, match_count} dicts. Raises DLPBlockedError if blocked.
 """
+
 import re
 from dataclasses import dataclass, field
 
@@ -17,6 +18,7 @@ from rag_chatbot.config import settings
 
 class DLPBlockedError(Exception):
     """Raised when ingestion is blocked by DLP policy."""
+
     def __init__(self, findings: list[dict]):
         self.findings = findings
         super().__init__(f"DLP blocked: {findings}")
@@ -29,9 +31,9 @@ class DLPResult:
 
 
 _PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("ssn",         re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("ssn", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
     ("credit_card", re.compile(r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b")),
-    ("aws_key",     re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("aws_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("private_key", re.compile(r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----")),
 ]
 
@@ -53,7 +55,9 @@ async def scan_text(text: str) -> DLPResult:
     if settings.nightfall_api_key and findings == []:
         findings.extend(await _nightfall_scan(text))
 
-    blocked = any(f["detector"] in ("ssn", "credit_card", "aws_key", "private_key") for f in findings)
+    blocked = any(
+        f["detector"] in ("ssn", "credit_card", "aws_key", "private_key") for f in findings
+    )
     if blocked:
         raise DLPBlockedError(findings)
     return DLPResult(allowed=True, findings=findings)
@@ -62,6 +66,7 @@ async def scan_text(text: str) -> DLPResult:
 async def _nightfall_scan(text: str) -> list[dict]:
     """Call Nightfall v3 API. Returns [] on error (fail-open)."""
     import httpx
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(
@@ -71,18 +76,30 @@ async def _nightfall_scan(text: str) -> list[dict]:
                     "payload": [text[:50_000]],  # Nightfall 50KB limit per item
                     "policy": {
                         "detectionRules": [
-                            {"name": "PII", "logicalOp": "ANY",
-                             "detectors": [
-                                {"detectorType": "NIGHTFALL_DETECTOR",
-                                 "nightfallDetector": "CREDIT_CARD_NUMBER",
-                                 "minNumFindings": 1, "minConfidence": "LIKELY"},
-                                {"detectorType": "NIGHTFALL_DETECTOR",
-                                 "nightfallDetector": "US_SOCIAL_SECURITY_NUMBER",
-                                 "minNumFindings": 1, "minConfidence": "LIKELY"},
-                                {"detectorType": "NIGHTFALL_DETECTOR",
-                                 "nightfallDetector": "API_KEY",
-                                 "minNumFindings": 1, "minConfidence": "LIKELY"},
-                            ]},
+                            {
+                                "name": "PII",
+                                "logicalOp": "ANY",
+                                "detectors": [
+                                    {
+                                        "detectorType": "NIGHTFALL_DETECTOR",
+                                        "nightfallDetector": "CREDIT_CARD_NUMBER",
+                                        "minNumFindings": 1,
+                                        "minConfidence": "LIKELY",
+                                    },
+                                    {
+                                        "detectorType": "NIGHTFALL_DETECTOR",
+                                        "nightfallDetector": "US_SOCIAL_SECURITY_NUMBER",
+                                        "minNumFindings": 1,
+                                        "minConfidence": "LIKELY",
+                                    },
+                                    {
+                                        "detectorType": "NIGHTFALL_DETECTOR",
+                                        "nightfallDetector": "API_KEY",
+                                        "minNumFindings": 1,
+                                        "minConfidence": "LIKELY",
+                                    },
+                                ],
+                            },
                         ]
                     },
                 },

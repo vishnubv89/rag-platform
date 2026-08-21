@@ -36,9 +36,7 @@ async def get_org_llm_config(
     Returns:
         Mapping of config key → value strings (empty dict when org has no config).
     """
-    rows = await conn.fetch(
-        "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-    )
+    rows = await conn.fetch("SELECT key, value FROM app_config WHERE org_id=$1", org_id)
     return {r["key"]: r["value"] for r in rows}
 
 

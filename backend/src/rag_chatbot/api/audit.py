@@ -1,5 +1,7 @@
 import json
+
 from fastapi import Request
+
 from rag_chatbot.db.connection import get_pool
 
 

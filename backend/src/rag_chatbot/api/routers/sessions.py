@@ -52,22 +52,26 @@ async def get_session(session_id: str, request: Request) -> dict:
         rows = await get_session_messages(conn, session_uuid, user["id"])
     messages = []
     for r in rows:
-        messages.append({
-            "role": "user",
-            "content": r["user_message"],
-            "log_id": None,
-            "source_chunk_ids": [],
-            "sources": [],
-            "feedback": None,
-            "timestamp": r["created_at"].isoformat(),
-        })
-        messages.append({
-            "role": "assistant",
-            "content": r["assistant_response"],
-            "log_id": r["id"],
-            "source_chunk_ids": list(r["source_chunk_ids"] or []),
-            "sources": [],
-            "feedback": r["feedback"],
-            "timestamp": r["created_at"].isoformat(),
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": r["user_message"],
+                "log_id": None,
+                "source_chunk_ids": [],
+                "sources": [],
+                "feedback": None,
+                "timestamp": r["created_at"].isoformat(),
+            }
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": r["assistant_response"],
+                "log_id": r["id"],
+                "source_chunk_ids": list(r["source_chunk_ids"] or []),
+                "sources": [],
+                "feedback": r["feedback"],
+                "timestamp": r["created_at"].isoformat(),
+            }
+        )
     return {"session_id": session_id, "messages": messages}

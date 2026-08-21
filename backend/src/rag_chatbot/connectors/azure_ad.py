@@ -7,6 +7,7 @@ Config keys:
 Syncs Azure AD group memberships for a user into user_attributes.
 connector_type = "azure_ad"
 """
+
 import httpx
 
 from rag_chatbot.connectors.base import BaseConnector, ConnectorDocument, RemoteDocument
@@ -92,7 +93,9 @@ class AzureADConnector(BaseConnector):
                            VALUES ($1, $2, $3)
                            ON CONFLICT (user_id, attr_type, attr_value) DO UPDATE
                            SET synced_at = now()""",
-                        user_id, "group", display_name,
+                        user_id,
+                        "group",
+                        display_name,
                     )
                 if department:
                     await conn.execute(
@@ -100,5 +103,7 @@ class AzureADConnector(BaseConnector):
                            VALUES ($1, $2, $3)
                            ON CONFLICT (user_id, attr_type, attr_value) DO UPDATE
                            SET synced_at = now()""",
-                        user_id, "department", department,
+                        user_id,
+                        "department",
+                        department,
                     )

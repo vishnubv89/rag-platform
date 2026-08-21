@@ -10,6 +10,7 @@ Indexes channels and their messages as documents.
 Each message thread (parent + replies) becomes one ConnectorDocument.
 connector_type = "slack"
 """
+
 import httpx
 
 from rag_chatbot.connectors.base import BaseConnector, ConnectorDocument, RemoteDocument
@@ -46,11 +47,7 @@ class SlackConnector(BaseConnector):
 
     async def _list_channels(self, client: httpx.AsyncClient) -> list[dict]:
         """Return all public channels (or the configured subset)."""
-        configured = [
-            c.strip()
-            for c in self.config.get("channel_ids", "").split(",")
-            if c.strip()
-        ]
+        configured = [c.strip() for c in self.config.get("channel_ids", "").split(",") if c.strip()]
 
         if configured:
             channels = []
@@ -104,12 +101,14 @@ class SlackConnector(BaseConnector):
                         if msg.get("type") != "message" or msg.get("subtype"):
                             continue
                         ts = msg["ts"]
-                        results.append(RemoteDocument(
-                            external_id=f"{ch_id}:{ts}",
-                            title=f"#{ch_name} — {ts}",
-                            source_url=f"https://slack.com/app_redirect?channel={ch_id}&message_ts={ts}",
-                            updated_at=ts,
-                        ))
+                        results.append(
+                            RemoteDocument(
+                                external_id=f"{ch_id}:{ts}",
+                                title=f"#{ch_name} — {ts}",
+                                source_url=f"https://slack.com/app_redirect?channel={ch_id}&message_ts={ts}",
+                                updated_at=ts,
+                            )
+                        )
                         fetched += 1
                     cursor = data.get("response_metadata", {}).get("next_cursor", "")
                     if not cursor or not data.get("has_more"):

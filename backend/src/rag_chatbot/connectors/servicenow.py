@@ -9,6 +9,7 @@ Config keys:
   category       (optional) filter by category sys_id
   ingest_incidents  (optional) "true" to also ingest closed incidents as KB articles
 """
+
 from dataclasses import dataclass, field
 
 import httpx
@@ -32,6 +33,7 @@ class IncidentRecord:
 def _strip_html(html: str) -> str:
     """Minimal HTML → plain text. Avoids a heavy dependency."""
     import re
+
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"&nbsp;", " ", text)
     text = re.sub(r"&amp;", "&", text)
@@ -96,12 +98,14 @@ class ServiceNowConnector(BaseConnector):
                 # ServiceNow returns a dict (not a list) when exactly one record matches
                 page = [result] if isinstance(result, dict) else result
                 for item in page:
-                    docs.append(RemoteDocument(
-                        external_id=item["sys_id"],
-                        title=item.get("short_description", "Untitled"),
-                        source_url=f"{self.config['instance_url'].rstrip('/')}/kb_view.do?sys_kb_id={item['sys_id']}",
-                        updated_at=item.get("sys_updated_on", ""),
-                    ))
+                    docs.append(
+                        RemoteDocument(
+                            external_id=item["sys_id"],
+                            title=item.get("short_description", "Untitled"),
+                            source_url=f"{self.config['instance_url'].rstrip('/')}/kb_view.do?sys_kb_id={item['sys_id']}",
+                            updated_at=item.get("sys_updated_on", ""),
+                        )
+                    )
                 if len(page) < PAGE:
                     break
                 offset += PAGE
@@ -113,8 +117,7 @@ class ServiceNowConnector(BaseConnector):
         records: list[IncidentRecord] = []
         base_params = {
             "sysparm_fields": (
-                "sys_id,number,short_description,description,"
-                "category,subcategory,close_notes,state"
+                "sys_id,number,short_description,description,category,subcategory,close_notes,state"
             ),
             # state=6 (resolved) or state=7 (closed)
             "sysparm_query": "state=6^ORstate=7^active=false",
@@ -131,15 +134,17 @@ class ServiceNowConnector(BaseConnector):
                 result = r.json().get("result", [])
                 page = [result] if isinstance(result, dict) else result
                 for item in page:
-                    records.append(IncidentRecord(
-                        sys_id=item["sys_id"],
-                        number=item.get("number", ""),
-                        short_description=item.get("short_description", ""),
-                        description=_strip_html(item.get("description") or ""),
-                        category=item.get("category", ""),
-                        subcategory=item.get("subcategory", ""),
-                        resolution_notes=_strip_html(item.get("close_notes") or ""),
-                    ))
+                    records.append(
+                        IncidentRecord(
+                            sys_id=item["sys_id"],
+                            number=item.get("number", ""),
+                            short_description=item.get("short_description", ""),
+                            description=_strip_html(item.get("description") or ""),
+                            category=item.get("category", ""),
+                            subcategory=item.get("subcategory", ""),
+                            resolution_notes=_strip_html(item.get("close_notes") or ""),
+                        )
+                    )
                 if len(page) < PAGE:
                     break
                 offset += PAGE
@@ -152,9 +157,7 @@ class ServiceNowConnector(BaseConnector):
                 "/api/now/table/sys_journal_field",
                 params={
                     "sysparm_query": (
-                        f"element_id={sys_id}"
-                        "^element=work_notes"
-                        "^ORDERBYsys_created_on"
+                        f"element_id={sys_id}^element=work_notes^ORDERBYsys_created_on"
                     ),
                     "sysparm_fields": "value",
                     "sysparm_limit": 100,

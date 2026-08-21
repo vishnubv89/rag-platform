@@ -3,10 +3,11 @@ Jira action tools — create and triage issues.
 
 Reads connector config from the org's Jira connector in the DB.
 """
+
 import httpx
 
-from rag_chatbot.db.connection import get_pool
 from rag_chatbot.agent.actions.registry import ActionResult, register_action
+from rag_chatbot.db.connection import get_pool
 
 
 async def _get_jira_config(org_id: int | None) -> dict | None:
@@ -15,12 +16,14 @@ async def _get_jira_config(org_id: int | None) -> dict | None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT config FROM connectors WHERE org_id=$1 AND connector_type='jira' AND is_active=TRUE LIMIT 1",
+            "SELECT config FROM connectors WHERE org_id=$1 "
+            "AND connector_type='jira' AND is_active=TRUE LIMIT 1",
             org_id,
         )
     if not row:
         return None
     import json as _json
+
     cfg = row["config"]
     return cfg if isinstance(cfg, dict) else _json.loads(cfg)
 
@@ -29,7 +32,8 @@ async def _get_jira_config(org_id: int | None) -> dict | None:
 async def create_issue(params: dict, state) -> ActionResult:
     """
     Create a Jira issue.
-    params: {summary, description?, project_key, issue_type? (Bug|Task|Story), priority? (High|Medium|Low)}
+    params: {summary, description?, project_key, issue_type? (Bug|Task|Story),
+             priority? (High|Medium|Low)}
     """
     cfg = await _get_jira_config(state.get("org_id"))
     if not cfg:
@@ -38,17 +42,23 @@ async def create_issue(params: dict, state) -> ActionResult:
     base = cfg["base_url"].rstrip("/")
     project_key = params.get("project_key") or cfg.get("project_key", "")
     if not project_key:
-        return ActionResult(success=False, message="project_key is required to create a Jira issue.")
+        return ActionResult(
+            success=False, message="project_key is required to create a Jira issue."
+        )
 
     payload = {
         "fields": {
             "project": {"key": project_key},
             "summary": params.get("summary", "Issue created via RAG agent"),
             "description": {
-                "type": "doc", "version": 1,
-                "content": [{"type": "paragraph", "content": [
-                    {"type": "text", "text": params.get("description", "")}
-                ]}],
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": params.get("description", "")}],
+                    }
+                ],
             },
             "issuetype": {"name": params.get("issue_type", "Task")},
             "priority": {"name": params.get("priority", "Medium")},
@@ -97,7 +107,9 @@ async def triage_issue(params: dict, state) -> ActionResult:
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
         # Get available transitions
-        tr_resp = await client.get(f"{base}/rest/api/3/issue/{issue_key}/transitions", auth=auth, headers=headers)
+        tr_resp = await client.get(
+            f"{base}/rest/api/3/issue/{issue_key}/transitions", auth=auth, headers=headers
+        )
         if tr_resp.status_code == 200:
             target_name = params.get("transition_name", "In Progress")
             transitions = tr_resp.json().get("transitions", [])
@@ -105,7 +117,8 @@ async def triage_issue(params: dict, state) -> ActionResult:
             if match:
                 await client.post(
                     f"{base}/rest/api/3/issue/{issue_key}/transitions",
-                    auth=auth, headers=headers,
+                    auth=auth,
+                    headers=headers,
                     json={"transition": {"id": match["id"]}},
                 )
                 results.append(f"Transitioned to '{match['name']}'")
@@ -114,10 +127,20 @@ async def triage_issue(params: dict, state) -> ActionResult:
         if params.get("comment"):
             await client.post(
                 f"{base}/rest/api/3/issue/{issue_key}/comment",
-                auth=auth, headers=headers,
-                json={"body": {"type": "doc", "version": 1, "content": [
-                    {"type": "paragraph", "content": [{"type": "text", "text": params["comment"]}]}
-                ]}},
+                auth=auth,
+                headers=headers,
+                json={
+                    "body": {
+                        "type": "doc",
+                        "version": 1,
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": params["comment"]}],
+                            }
+                        ],
+                    }
+                },
             )
             results.append("Comment added")
 

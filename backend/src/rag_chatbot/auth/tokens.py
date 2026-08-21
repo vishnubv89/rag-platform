@@ -1,5 +1,5 @@
-from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 import jwt
 
@@ -15,7 +15,7 @@ class TokenPair:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def create_access_token(user_id: int, role: str, org_id: int | None) -> str:

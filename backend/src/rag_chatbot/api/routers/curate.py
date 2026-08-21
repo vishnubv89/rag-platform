@@ -23,7 +23,11 @@ from rag_chatbot.api.schemas import (
     SNCategory,
 )
 from rag_chatbot.db.connection import get_pool
-from rag_chatbot.db.repositories.orgs import resolve_org_id, get_org_llm_config, get_sn_connector_config
+from rag_chatbot.db.repositories.orgs import (
+    get_org_llm_config,
+    get_sn_connector_config,
+    resolve_org_id,
+)
 from rag_chatbot.llm.client import generate as llm_generate
 from rag_chatbot.retrieval.vector_store import hybrid_search
 
@@ -32,12 +36,15 @@ router = APIRouter(tags=["curate"])
 _CURATE_SYSTEM = (
     "You are an expert knowledge-article quality curator applying KCS (Knowledge-Centered Service) "
     "v6 and ITIL 4 best-practice standards.\n\n"
-    "Evaluate the provided document against these seven quality dimensions and return improvements:\n"
-    "1. Structure — Has a clear title, purpose/scope, step-by-step procedure, expected outcome, and references section.\n"
+    "Evaluate the provided document against these seven quality dimensions "
+    "and return improvements:\n"
+    "1. Structure — Has a clear title, purpose/scope, step-by-step procedure, "
+    "expected outcome, and references section.\n"
     "2. Clarity — Plain language, active voice, no undefined acronyms or jargon.\n"
     "3. Completeness — All required sections present, no information gaps or dangling references.\n"
     "4. Accuracy — Consistent terminology, no contradictions, technically sound.\n"
-    "5. Actionability — Numbered steps where applicable, specific instructions, measurable outcomes.\n"
+    "5. Actionability — Numbered steps where applicable, specific instructions, "
+    "measurable outcomes.\n"
     "6. Findability — Clear, search-friendly title with relevant keywords.\n"
     "7. Readability — Appropriate length, proper headings, scannable bullet points.\n\n"
     "SCORING RULES (mandatory):\n"
@@ -47,7 +54,8 @@ _CURATE_SYSTEM = (
     "- score_after MUST be strictly greater than score_before. Minimum improvement: +10 points.\n"
     "- A typical raw KB article scores 20–55; a well-structured article scores 70–90.\n\n"
     "CHANGES RULES (mandatory):\n"
-    "- You MUST list at least 3 improvements across different dimensions, even for decent articles.\n"
+    "- You MUST list at least 3 improvements across different dimensions, "
+    "even for decent articles.\n"
     "- Be specific: describe exactly what you changed and why it improves the dimension.\n\n"
     "Respond using EXACTLY this two-part format and no other text:\n\n"
     "METADATA\n"
@@ -56,8 +64,10 @@ _CURATE_SYSTEM = (
     "<full improved document body here — plain text or markdown, no JSON escaping needed>\n\n"
     "Rules:\n"
     "- The METADATA JSON must be a single-line valid JSON object (no newlines inside it).\n"
-    "- After ---CONTENT--- write the full improved document with normal markdown; do NOT escape anything.\n"
-    "- If reference material is provided, incorporate relevant facts but do not invent information.\n"
+    "- After ---CONTENT--- write the full improved document with normal markdown; "
+    "do NOT escape anything.\n"
+    "- If reference material is provided, incorporate relevant facts "
+    "but do not invent information.\n"
     "- Rewrite the full document, not just a summary — the improved content must be complete."
 )
 
@@ -120,7 +130,9 @@ async def _get_sn_connector(org_id: int | None) -> dict:
     async with pool.acquire() as conn:
         row = await get_sn_connector_config(conn, org_id)
     if not row:
-        raise HTTPException(status_code=404, detail="No active ServiceNow connector found for this org")
+        raise HTTPException(
+            status_code=404, detail="No active ServiceNow connector found for this org"
+        )
     cfg = row["config"]
     return _json.loads(cfg) if isinstance(cfg, str) else dict(cfg)
 
@@ -147,9 +159,7 @@ async def curate(req: CurateRequest, request: Request) -> CurateResponse:
 
     doc_header = f"Title: {req.title}\n\n" if req.title else ""
     if docs:
-        ref_block = "\n\n".join(
-            f"[{d.get('doc_title', 'Reference')}]\n{d['text']}" for d in docs
-        )
+        ref_block = "\n\n".join(f"[{d.get('doc_title', 'Reference')}]\n{d['text']}" for d in docs)
         prompt = (
             f"Document to curate:\n{doc_header}{req.content}\n\n"
             f"Reference material from knowledge base:\n{ref_block}"
@@ -212,7 +222,11 @@ async def curate(req: CurateRequest, request: Request) -> CurateResponse:
         for c in data.get("changes", [])
     ]
     sources = [
-        {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
+        {
+            "doc_id": d["doc_id"],
+            "doc_title": d.get("doc_title", ""),
+            "doc_source": d.get("doc_source", ""),
+        }
         for d in docs
     ]
     seen: set[int] = set()

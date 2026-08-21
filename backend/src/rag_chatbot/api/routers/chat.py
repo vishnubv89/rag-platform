@@ -18,14 +18,20 @@ from fastapi.responses import StreamingResponse
 from rag_chatbot.agent.graph import rag_graph
 from rag_chatbot.api.deps import extract_zitadel_token, require_user
 from rag_chatbot.api.rate_limit import limiter
-from rag_chatbot.api.schemas import ChatRequest, ChatResponse, FeedbackRequest, FollowUpRequest, FollowUpResponse
+from rag_chatbot.api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    FeedbackRequest,
+    FollowUpRequest,
+    FollowUpResponse,
+)
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.db.repositories.chat import (
     insert_chat_log,
     insert_chat_log_returning_id,
     update_chat_feedback,
 )
-from rag_chatbot.db.repositories.orgs import resolve_org_id, get_org_llm_config
+from rag_chatbot.db.repositories.orgs import get_org_llm_config, resolve_org_id
 from rag_chatbot.llm.client import generate as llm_generate
 from rag_chatbot.observability import get_langfuse
 
@@ -237,7 +243,16 @@ async def chat_stream(req: ChatRequest, request: Request) -> StreamingResponse:
                     completion_tokens=final_state.get("completion_tokens", 0),
                 )
 
-        yield f"data: {json.dumps({'type': 'done', 'log_id': log_id, 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
+        done_payload = {
+            "type": "done",
+            "log_id": log_id,
+            "answer": final_state.get("answer", ""),
+            "source_chunk_ids": final_state.get("source_chunk_ids", []),
+            "sources": final_state.get("sources", []),
+            "loop_count": final_state.get("loop_count", 0),
+            "session_id": session_id,
+        }
+        yield f"data: {json.dumps(done_payload)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -255,9 +270,7 @@ async def chat_followup(req: FollowUpRequest, request: Request) -> FollowUpRespo
 
     await require_user(request)
     recent = req.messages[-6:]
-    history = "\n".join(
-        f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent
-    )
+    history = "\n".join(f"{m['role'].upper()}: {str(m.get('content', ''))[:400]}" for m in recent)
     prompt = (
         f"Conversation so far:\n{history}\n\n"
         "Generate 3 natural follow-up questions the user might want to ask next. "
