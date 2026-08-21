@@ -19,6 +19,7 @@ Setup:
      - Create an API Token
   2. Use the agent email + that token in the config above.
 """
+
 import re
 
 import httpx
@@ -87,17 +88,21 @@ class ZendeskConnector(BaseConnector):
         async with self._client() as client:
             url: str | None = path
             while url:
-                r = await client.get(url, params={"per_page": 100, "sort_by": "updated_at", "sort_order": "desc"})
+                r = await client.get(
+                    url, params={"per_page": 100, "sort_by": "updated_at", "sort_order": "desc"}
+                )
                 r.raise_for_status()
                 data = r.json()
                 for article in data.get("articles", []):
                     if not article.get("draft", False):
-                        results.append(RemoteDocument(
-                            external_id=f"article:{article['id']}",
-                            title=article.get("title", str(article["id"])),
-                            source_url=article.get("html_url", ""),
-                            updated_at=article.get("updated_at", ""),
-                        ))
+                        results.append(
+                            RemoteDocument(
+                                external_id=f"article:{article['id']}",
+                                title=article.get("title", str(article["id"])),
+                                source_url=article.get("html_url", ""),
+                                updated_at=article.get("updated_at", ""),
+                            )
+                        )
                 next_page = data.get("next_page")
                 url = next_page if next_page and not next_page.endswith("page=1") else None
 
@@ -150,12 +155,14 @@ class ZendeskConnector(BaseConnector):
                 for ticket in data.get("results", []):
                     if ticket.get("result_type") != "ticket":
                         continue
-                    results.append(RemoteDocument(
-                        external_id=f"ticket:{ticket['id']}",
-                        title=f"[Ticket #{ticket['id']}] {ticket.get('subject', '')}",
-                        source_url=f"{self._base()}/agent/tickets/{ticket['id']}",
-                        updated_at=ticket.get("updated_at", ""),
-                    ))
+                    results.append(
+                        RemoteDocument(
+                            external_id=f"ticket:{ticket['id']}",
+                            title=f"[Ticket #{ticket['id']}] {ticket.get('subject', '')}",
+                            source_url=f"{self._base()}/agent/tickets/{ticket['id']}",
+                            updated_at=ticket.get("updated_at", ""),
+                        )
+                    )
                     fetched += 1
                     if fetched >= limit:
                         break

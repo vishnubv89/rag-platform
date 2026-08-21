@@ -1,10 +1,11 @@
 """
 Notification action tools — send messages to Slack and Microsoft Teams.
 """
+
 import httpx
 
-from rag_chatbot.config import settings
 from rag_chatbot.agent.actions.registry import ActionResult, register_action
+from rag_chatbot.config import settings
 
 
 @register_action("slack_send_message")
@@ -35,7 +36,9 @@ async def send_slack_message(params: dict, state) -> ActionResult:
             )
         data = r.json()
         if not data.get("ok"):
-            return ActionResult(success=False, message=f"Slack error: {data.get('error', 'unknown')}")
+            return ActionResult(
+                success=False, message=f"Slack error: {data.get('error', 'unknown')}"
+            )
         return ActionResult(
             success=True,
             message=f"Message sent to {channel}.",

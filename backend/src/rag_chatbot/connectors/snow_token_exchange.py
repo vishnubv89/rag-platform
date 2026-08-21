@@ -34,6 +34,7 @@ Usage
         # use snow_token in Authorization header for ServiceNow API calls
         headers = {"Authorization": f"Bearer {snow_token}"}
 """
+
 import logging
 
 import httpx
@@ -168,16 +169,18 @@ async def snow_kb_search(
         text = article.get("text", "") or article.get("short_description", "")
         if not text:
             continue
-        results.append({
-            # chunk_id / doc_id are unknown for live results; use 0 as sentinel
-            "chunk_id": 0,
-            "doc_id": 0,
-            "doc_title": article.get("short_description", ""),
-            "doc_source": f"{instance_url}/kb_view.do?sysparm_article={article['sys_id']}",
-            "text": text[:2000],
-            "external_id": article.get("sys_id"),
-            "score": 1.0,  # live OBO results ranked by SN relevance; no vector score
-            "source": "obo_live",
-        })
+        results.append(
+            {
+                # chunk_id / doc_id are unknown for live results; use 0 as sentinel
+                "chunk_id": 0,
+                "doc_id": 0,
+                "doc_title": article.get("short_description", ""),
+                "doc_source": f"{instance_url}/kb_view.do?sysparm_article={article['sys_id']}",
+                "text": text[:2000],
+                "external_id": article.get("sys_id"),
+                "score": 1.0,  # live OBO results ranked by SN relevance; no vector score
+                "source": "obo_live",
+            }
+        )
 
     return results

@@ -8,7 +8,9 @@ app_config table in the DB):
              (also works for OpenAI, Groq, Together AI, Ollama, etc.
               by overriding nvidia_base_url / nvidia_api_key in settings)
 """
-from typing import Generator
+
+from collections.abc import Generator
+
 import anthropic as _anthropic
 import openai as _openai
 from google import genai
@@ -16,7 +18,6 @@ from google.genai import types
 
 from rag_chatbot.config import settings
 from rag_chatbot.observability import get_langfuse
-
 
 # Cached per api_key so changing keys in the admin UI gets a fresh client.
 _gemini_clients: dict[str, genai.Client] = {}
@@ -188,8 +189,7 @@ def stream_generate(
                 system=system or "You are a helpful assistant.",
                 messages=[{"role": "user", "content": prompt}],
             ) as stream:
-                for text in stream.text_stream:
-                    yield text
+                yield from stream.text_stream
                 # get_final_usage() is available once text_stream is exhausted
                 if usage_out is not None:
                     fu = stream.get_final_usage()

@@ -11,6 +11,7 @@ Config keys:
 Indexes Workday Knowledge Articles and Job Postings as KB documents.
 connector_type = "workday"
 """
+
 import re
 
 import httpx
@@ -83,12 +84,14 @@ class WorkdayConnector(BaseConnector):
                 )
                 if r.status_code == 200:
                     for article in r.json().get("data", []):
-                        results.append(RemoteDocument(
-                            external_id=f"article:{article['id']}",
-                            title=article.get("title", article["id"]),
-                            source_url=f"{api_base}/knowledge/v1/articles/{article['id']}",
-                            updated_at=article.get("lastUpdated", ""),
-                        ))
+                        results.append(
+                            RemoteDocument(
+                                external_id=f"article:{article['id']}",
+                                title=article.get("title", article["id"]),
+                                source_url=f"{api_base}/knowledge/v1/articles/{article['id']}",
+                                updated_at=article.get("lastUpdated", ""),
+                            )
+                        )
             except Exception:
                 pass
 
@@ -101,12 +104,14 @@ class WorkdayConnector(BaseConnector):
                 )
                 if r.status_code == 200:
                     for posting in r.json().get("data", []):
-                        results.append(RemoteDocument(
-                            external_id=f"job:{posting['id']}",
-                            title=posting.get("jobPostingTitle", posting["id"]),
-                            source_url=f"{api_base}/staffing/v6/jobPostings/{posting['id']}",
-                            updated_at=posting.get("postedDate", ""),
-                        ))
+                        results.append(
+                            RemoteDocument(
+                                external_id=f"job:{posting['id']}",
+                                title=posting.get("jobPostingTitle", posting["id"]),
+                                source_url=f"{api_base}/staffing/v6/jobPostings/{posting['id']}",
+                                updated_at=posting.get("postedDate", ""),
+                            )
+                        )
             except Exception:
                 pass
 
@@ -146,6 +151,10 @@ class WorkdayConnector(BaseConnector):
             external_id=external_id,
             title=title,
             text=text,
-            source_url=f"{api_base}/{'knowledge/v1/articles' if kind == 'article' else 'staffing/v6/jobPostings'}/{doc_id}",
+            source_url=(
+                f"{api_base}/"
+                f"{'knowledge/v1/articles' if kind == 'article' else 'staffing/v6/jobPostings'}"
+                f"/{doc_id}"
+            ),
             metadata={"kind": kind, "updated_at": updated_at, "source": "workday"},
         )

@@ -1,17 +1,25 @@
-from langgraph.graph import StateGraph, END
+"""
+LangGraph agent graph definition.
 
-from rag_chatbot.agent.state import AgentState
+Wires together the RAG pipeline nodes (contextualize → intent → retrieve →
+grade → rewrite/generate/clarify) using LangGraph's StateGraph. The compiled
+graph is exported as `rag_graph` and invoked by the chat route handlers.
+"""
+
+from langgraph.graph import END, StateGraph
+
 from rag_chatbot.agent.nodes import (
-    contextualize_node,
-    intent_node,
-    retriever_node,
-    grader_node,
-    rewriter_node,
-    generator_node,
-    clarify_node,
-    kb_overview_node,
     action_node,
+    clarify_node,
+    contextualize_node,
+    generator_node,
+    grader_node,
+    intent_node,
+    kb_overview_node,
+    retriever_node,
+    rewriter_node,
 )
+from rag_chatbot.agent.state import AgentState
 from rag_chatbot.config import settings
 
 
@@ -50,7 +58,12 @@ def build_graph() -> StateGraph:
     graph.add_conditional_edges(
         "intent",
         _route_after_intent,
-        {"kb_overview": "kb_overview", "action": "action", "generate": "generator", "retrieve": "retriever"},
+        {
+            "kb_overview": "kb_overview",
+            "action": "action",
+            "generate": "generator",
+            "retrieve": "retriever",
+        },
     )
     graph.add_edge("action", END)
     graph.add_edge("kb_overview", END)

@@ -5,6 +5,7 @@ from admin_ui import client
 router = APIRouter()
 
 CONFIG_KEYS = [
+    "chatbot_name", "chatbot_instructions",
     "llm_provider", "llm_model",
     "anthropic_model", "anthropic_api_key",
     "nvidia_model", "nvidia_api_key", "nvidia_base_url",
@@ -41,6 +42,8 @@ async def settings_page(request: Request):
 async def save_settings(
     request: Request,
     org_id: str | None = Form(None),
+    chatbot_name: str = Form(""),
+    chatbot_instructions: str = Form(""),
     llm_provider: str = Form("gemini"),
     llm_model: str = Form(""),
     anthropic_model: str = Form(""),
@@ -57,6 +60,8 @@ async def save_settings(
 ):
     org_id_int = int(org_id) if org_id else None
     new_cfg: dict[str, str] = {
+        "chatbot_name": chatbot_name,
+        "chatbot_instructions": chatbot_instructions,
         "llm_provider": llm_provider,
         "llm_model": llm_model,
         "anthropic_model": anthropic_model,

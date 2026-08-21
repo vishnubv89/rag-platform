@@ -7,25 +7,28 @@ A connector is responsible for:
   3. Fetching the full text of a single document
   4. Running an incremental sync (list → diff → fetch changed → embed → upsert)
 """
+
 import hashlib
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import AsyncIterator
 
 
 @dataclass
 class RemoteDocument:
     """Lightweight listing entry — returned by list_documents()."""
-    external_id: str        # stable ID in the source system
+
+    external_id: str  # stable ID in the source system
     title: str
     source_url: str
-    updated_at: str         # ISO-8601 string; used for ordering, not hashing
+    updated_at: str  # ISO-8601 string; used for ordering, not hashing
     content_hash: str = ""  # SHA-256 of content; computed by fetch if not provided
 
 
 @dataclass
 class ConnectorDocument:
     """Full document — returned by fetch_document()."""
+
     external_id: str
     title: str
     text: str

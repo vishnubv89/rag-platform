@@ -1,9 +1,16 @@
+"""
+FastAPI dependency functions for authentication and authorisation.
+
+Provides verify_admin_key (X-Admin-Key header validation), require_user
+(Bearer JWT validation supporting both local HS256 and Zitadel RS256 tokens),
+and RBAC helpers (require_admin, require_superadmin, assert_org_access).
+"""
+
 import hashlib
 import logging
 
-from fastapi import Header, HTTPException, Request, status
-
 import jwt
+from fastapi import Header, HTTPException, Request, status
 
 from rag_chatbot.config import settings
 from rag_chatbot.db.connection import get_pool
@@ -32,15 +39,14 @@ async def verify_admin_key(x_admin_key: str = Header(...)) -> str:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or revoked admin key",
             )
-        await conn.execute(
-            "UPDATE api_keys SET last_used = now() WHERE id = $1", row["id"]
-        )
+        await conn.execute("UPDATE api_keys SET last_used = now() WHERE id = $1", row["id"])
     return x_admin_key
 
 
 def _decode_bearer(request: Request) -> dict:
     """Decode Bearer token from request headers synchronously (no DB lookup)."""
     from rag_chatbot.auth.tokens import decode_access_token
+
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise ValueError("No bearer token")
@@ -90,6 +96,7 @@ async def require_user(request: Request) -> dict:
     # --- 1. Try local HS256 ---
     try:
         from rag_chatbot.auth.tokens import decode_access_token
+
         payload = decode_access_token(token)
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -107,6 +114,7 @@ async def require_user(request: Request) -> dict:
 
     # --- 2. Try Zitadel OIDC (RS256) ---
     from rag_chatbot.auth.oidc import oidc_enabled, validate_oidc_token
+
     if not oidc_enabled():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
@@ -117,9 +125,16 @@ async def require_user(request: Request) -> dict:
     except jwt.InvalidTokenError as exc:
         # Log the unverified claims so we can see iss/aud without a round-trip
         try:
-            unverified = jwt.decode(token, options={"verify_signature": False, "verify_aud": False, "verify_iss": False})
-            _log.error("OIDC validation failed: %s | unverified claims: iss=%s aud=%s sub=%s",
-                       exc, unverified.get("iss"), unverified.get("aud"), unverified.get("sub"))
+            unverified = jwt.decode(
+                token, options={"verify_signature": False, "verify_aud": False, "verify_iss": False}
+            )
+            _log.error(
+                "OIDC validation failed: %s | unverified claims: iss=%s aud=%s sub=%s",
+                exc,
+                unverified.get("iss"),
+                unverified.get("aud"),
+                unverified.get("sub"),
+            )
         except Exception:
             _log.error("OIDC validation failed: %s | could not decode token", exc)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
@@ -128,6 +143,7 @@ async def require_user(request: Request) -> dict:
 # ---------------------------------------------------------------------------
 # Role-based access control dependencies
 # ---------------------------------------------------------------------------
+
 
 async def require_admin(request: Request) -> dict:
     """Allow only users with role 'admin' or 'superadmin'."""
@@ -141,7 +157,9 @@ async def require_superadmin(request: Request) -> dict:
     """Allow only users with role 'superadmin' (cross-org operations)."""
     user = await require_user(request)
     if user.get("role") != "superadmin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Superadmin access required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Superadmin access required"
+        )
     return user
 
 

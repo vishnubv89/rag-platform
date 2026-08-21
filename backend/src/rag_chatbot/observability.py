@@ -13,6 +13,7 @@ Usage:
 Returns None everywhere when LANGFUSE_SECRET_KEY is not set, so the backend
 works identically with or without Langfuse configured.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +25,7 @@ _langfuse = None  # lazy singleton
 
 def _enabled() -> bool:
     from rag_chatbot.config import settings
+
     return bool(settings.langfuse_secret_key)
 
 
@@ -36,7 +38,9 @@ def get_langfuse():
     if _langfuse is None:
         try:
             from langfuse import Langfuse
+
             from rag_chatbot.config import settings
+
             _langfuse = Langfuse(
                 public_key=settings.langfuse_public_key,
                 secret_key=settings.langfuse_secret_key,
@@ -53,10 +57,12 @@ def get_langfuse():
 def init_datadog() -> None:
     """Initialise Datadog APM tracing if DD_ENABLED=true."""
     from rag_chatbot.config import settings
+
     if not settings.dd_enabled or not settings.dd_api_key:
         return
     try:
         import ddtrace
+
         ddtrace.patch_all()
     except ImportError:
         log.warning("ddtrace not installed; Datadog APM disabled")
@@ -65,13 +71,14 @@ def init_datadog() -> None:
 def init_otel() -> None:
     """Initialise OpenTelemetry exporter for Dynatrace (or any OTLP endpoint)."""
     from rag_chatbot.config import settings
+
     if not settings.otel_endpoint:
         return
     try:
         from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         exporter = OTLPSpanExporter(
             endpoint=settings.otel_endpoint,

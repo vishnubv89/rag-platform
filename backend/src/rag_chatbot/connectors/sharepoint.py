@@ -10,6 +10,7 @@ Config keys:
 
 Permissions required: Sites.Read.All (application permission)
 """
+
 import re
 
 import httpx
@@ -34,12 +35,15 @@ class SharePointConnector(BaseConnector):
     async def _token(self) -> str:
         url = TOKEN_URL.format(tenant_id=self.config["tenant_id"])
         async with httpx.AsyncClient() as client:
-            r = await client.post(url, data={
-                "grant_type": "client_credentials",
-                "client_id": self.config["client_id"],
-                "client_secret": self.config["client_secret"],
-                "scope": "https://graph.microsoft.com/.default",
-            })
+            r = await client.post(
+                url,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": self.config["client_id"],
+                    "client_secret": self.config["client_secret"],
+                    "scope": "https://graph.microsoft.com/.default",
+                },
+            )
             r.raise_for_status()
             return r.json()["access_token"]
 
@@ -89,12 +93,14 @@ class SharePointConnector(BaseConnector):
         docs = []
         for item in items:
             if item.get("file") and item["name"].lower().endswith((".pdf", ".docx", ".txt", ".md")):
-                docs.append(RemoteDocument(
-                    external_id=item["id"],
-                    title=item["name"],
-                    source_url=item.get("webUrl", ""),
-                    updated_at=item.get("lastModifiedDateTime", ""),
-                ))
+                docs.append(
+                    RemoteDocument(
+                        external_id=item["id"],
+                        title=item["name"],
+                        source_url=item.get("webUrl", ""),
+                        updated_at=item.get("lastModifiedDateTime", ""),
+                    )
+                )
         return docs
 
     async def fetch_document(self, external_id: str) -> ConnectorDocument:
@@ -106,8 +112,9 @@ class SharePointConnector(BaseConnector):
             r.raise_for_status()
             meta = r.json()
             # download content
-            dl = await client.get(f"/sites/{site_id}/drive/items/{external_id}/content",
-                                  follow_redirects=True)
+            dl = await client.get(
+                f"/sites/{site_id}/drive/items/{external_id}/content", follow_redirects=True
+            )
             dl.raise_for_status()
 
         name = meta.get("name", "")
@@ -116,16 +123,20 @@ class SharePointConnector(BaseConnector):
         # extract text based on file type
         if name.lower().endswith(".pdf"):
             import io
+
             try:
                 import pypdf
+
                 reader = pypdf.PdfReader(io.BytesIO(raw))
                 text = "\n".join(p.extract_text() or "" for p in reader.pages)
             except ImportError:
                 text = raw.decode("latin-1", errors="replace")
         elif name.lower().endswith(".docx"):
             import io
+
             try:
                 import docx
+
                 doc = docx.Document(io.BytesIO(raw))
                 text = "\n".join(p.text for p in doc.paragraphs)
             except ImportError:

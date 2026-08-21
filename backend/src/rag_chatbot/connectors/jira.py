@@ -23,6 +23,7 @@ Setup:
     1. Use your Jira username + password (or a personal access token)
     2. Set cloud=false
 """
+
 import re
 
 import httpx
@@ -146,12 +147,14 @@ class JiraConnector(BaseConnector):
                 for issue in issues:
                     fields = issue.get("fields", {})
                     base = self._base()
-                    results.append(RemoteDocument(
-                        external_id=issue["key"],
-                        title=f"[{issue['key']}] {fields.get('summary', '')}",
-                        source_url=f"{base}/browse/{issue['key']}",
-                        updated_at=fields.get("updated", ""),
-                    ))
+                    results.append(
+                        RemoteDocument(
+                            external_id=issue["key"],
+                            title=f"[{issue['key']}] {fields.get('summary', '')}",
+                            source_url=f"{base}/browse/{issue['key']}",
+                            updated_at=fields.get("updated", ""),
+                        )
+                    )
 
                 start_at += len(issues)
                 if start_at >= data.get("total", 0):
@@ -163,7 +166,9 @@ class JiraConnector(BaseConnector):
         async with self._client() as client:
             r = await client.get(
                 self._api(f"issue/{external_id}"),
-                params={"fields": "summary,description,comment,status,priority,labels,updated,issuetype"},
+                params={
+                    "fields": "summary,description,comment,status,priority,labels,updated,issuetype"
+                },
             )
             r.raise_for_status()
             issue = r.json()

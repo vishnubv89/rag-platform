@@ -6,6 +6,7 @@ Run standalone for testing:
 
 Or import `mcp` and mount it in FastAPI with SSE transport.
 """
+
 import asyncio
 
 from fastmcp import FastMCP
@@ -55,6 +56,7 @@ async def ingest_document(title: str, text: str, source: str = "") -> dict:
 
 
 if __name__ == "__main__":
+
     async def _setup():
         await run_schema()
 

@@ -6,10 +6,12 @@ Lifecycle:
   stop_scheduler()    called at shutdown
   run_sync(connector_id)  trigger an immediate sync for one connector
 """
+
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from rag_chatbot.db.connection import get_pool
 from rag_chatbot.embeddings.gemini_embedder import embed_batch
@@ -21,6 +23,7 @@ _scheduler_task: asyncio.Task | None = None
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 async def _fetch_connector(conn, connector_id: int) -> dict | None:
     row = await conn.fetchrow(
@@ -39,13 +42,15 @@ async def _existing_hashes(conn, connector_id: int) -> dict[str, tuple[int, str]
     return {r["external_id"]: (r["id"], r["content_hash"] or "") for r in rows}
 
 
-async def _upsert_document(conn, doc, connector_id: int, org_id: int, existing_doc_id: int | None) -> int:
+async def _upsert_document(
+    conn, doc, connector_id: int, org_id: int, existing_doc_id: int | None
+) -> int:
     """
     Insert or update a document + its chunks atomically.
     If the text is empty or embedding fails, the whole operation is rolled
     back — no orphaned 0-chunk document rows are created.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     meta = json.dumps({**doc.metadata, "connector_id": connector_id})
 
     chunks = chunk_text(doc.text)
@@ -61,7 +66,12 @@ async def _upsert_document(conn, doc, connector_id: int, org_id: int, existing_d
                 """UPDATE documents SET title=$1, source=$2, metadata=$3,
                    content_hash=$4, last_synced_at=$5, topics=NULL
                    WHERE id=$6""",
-                doc.title, doc.source_url, meta, doc.content_hash, now, existing_doc_id,
+                doc.title,
+                doc.source_url,
+                meta,
+                doc.content_hash,
+                now,
+                existing_doc_id,
             )
             await conn.execute("DELETE FROM chunks WHERE doc_id=$1", existing_doc_id)
             doc_id = existing_doc_id
@@ -70,19 +80,29 @@ async def _upsert_document(conn, doc, connector_id: int, org_id: int, existing_d
                 """INSERT INTO documents (title, source, metadata, org_id, connector_id,
                    external_id, content_hash, last_synced_at)
                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id""",
-                doc.title, doc.source_url, meta, org_id, connector_id,
-                doc.external_id, doc.content_hash, now,
+                doc.title,
+                doc.source_url,
+                meta,
+                org_id,
+                connector_id,
+                doc.external_id,
+                doc.content_hash,
+                now,
             )
 
         await conn.executemany(
             "INSERT INTO chunks (doc_id, chunk_index, text, embedding) VALUES ($1,$2,$3,$4)",
-            [(doc_id, i, chunk, emb) for i, (chunk, emb) in enumerate(zip(chunks, embeddings))],
+            [
+                (doc_id, i, chunk, emb)
+                for i, (chunk, emb) in enumerate(zip(chunks, embeddings, strict=True))
+            ],
         )
 
     return doc_id
 
 
 # ── core sync ─────────────────────────────────────────────────────────────────
+
 
 async def run_sync(connector_id: int) -> dict:
     """
@@ -109,7 +129,7 @@ async def run_sync(connector_id: int) -> dict:
     # Import registry lazily to avoid circular imports at module load
     from rag_chatbot.connectors.registry import get as get_connector
 
-    stats = {"docs_added": 0, "docs_updated": 0, "docs_deleted": 0, "error": None}
+    stats: dict[str, Any] = {"docs_added": 0, "docs_updated": 0, "docs_deleted": 0, "error": None}
 
     try:
         config = json.loads(row["config"]) if isinstance(row["config"], str) else row["config"]
@@ -130,9 +150,7 @@ async def run_sync(connector_id: int) -> dict:
                     stats["docs_added"] += 1
 
         # Delete documents removed from the source
-        deleted_ids = await connector.deleted_ids(
-            {eid: h for eid, (_, h) in existing.items()}
-        )
+        deleted_ids = await connector.deleted_ids({eid: h for eid, (_, h) in existing.items()})
         if deleted_ids:
             async with pool.acquire() as conn:
                 for eid in deleted_ids:
@@ -141,8 +159,10 @@ async def run_sync(connector_id: int) -> dict:
                     stats["docs_deleted"] += 1
 
         # For ServiceNow connectors with incident ingestion enabled, run incident pipeline
-        if (row["connector_type"] == "servicenow"
-                and config.get("ingest_incidents", "").lower() == "true"):
+        if (
+            row["connector_type"] == "servicenow"
+            and config.get("ingest_incidents", "").lower() == "true"
+        ):
             from rag_chatbot.connectors.incident_processor import process_incidents
 
             # Fetch org's LLM config for article generation
@@ -161,9 +181,7 @@ async def run_sync(connector_id: int) -> dict:
                 config=config,
                 llm_config=llm_config,
             )
-            log.info(
-                "Incident processing done for connector %d: %s", connector_id, inc_stats
-            )
+            log.info("Incident processing done for connector %d: %s", connector_id, inc_stats)
             if inc_stats.get("error") and not stats.get("error"):
                 stats["error"] = f"incident_processor: {inc_stats['error']}"
             stats["incident_stats"] = inc_stats
@@ -174,7 +192,8 @@ async def run_sync(connector_id: int) -> dict:
             f" | incidents: {inc['incidents_processed']} processed, "
             f"{inc['clusters_created']} articles created, "
             f"{inc['clusters_updated']} updated"
-            if inc else ""
+            if inc
+            else ""
         )
         message = (
             f"✓ KB: +{stats['docs_added']} updated:{stats['docs_updated']} "
@@ -191,19 +210,26 @@ async def run_sync(connector_id: int) -> dict:
         await conn.execute(
             """UPDATE sync_jobs SET status=$1, docs_added=$2, docs_updated=$3,
                docs_deleted=$4, error_message=$5, finished_at=now() WHERE id=$6""",
-            status, stats["docs_added"], stats["docs_updated"],
-            stats["docs_deleted"], stats.get("error"), job_id,
+            status,
+            stats["docs_added"],
+            stats["docs_updated"],
+            stats["docs_deleted"],
+            stats.get("error"),
+            job_id,
         )
         await conn.execute(
             """UPDATE connectors SET last_sync_status=$1, last_synced_at=now(),
                last_sync_message=$2, updated_at=now() WHERE id=$3""",
-            status, message, connector_id,
+            status,
+            message,
+            connector_id,
         )
 
     return stats
 
 
 # ── scheduler ────────────────────────────────────────────────────────────────
+
 
 async def _scheduler_loop():
     """Every 60 s, find connectors due for sync and run them."""
@@ -217,7 +243,8 @@ async def _scheduler_loop():
                          AND last_sync_status != 'running'
                          AND (
                              last_synced_at IS NULL
-                             OR last_synced_at < now() - (sync_interval_minutes * INTERVAL '1 minute')
+                             OR last_synced_at
+                                < now() - (sync_interval_minutes * INTERVAL '1 minute')
                          )"""
                 )
             for row in due:

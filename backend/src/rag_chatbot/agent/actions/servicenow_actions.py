@@ -3,10 +3,11 @@ ServiceNow action tools — create incidents and change requests.
 
 Reads connector config from the org's ServiceNow connector in the DB.
 """
+
 import httpx
 
-from rag_chatbot.db.connection import get_pool
 from rag_chatbot.agent.actions.registry import ActionResult, register_action
+from rag_chatbot.db.connection import get_pool
 
 
 async def _get_snow_config(org_id: int | None) -> dict | None:
@@ -23,6 +24,7 @@ async def _get_snow_config(org_id: int | None) -> dict | None:
     if not row:
         return None
     import json as _json
+
     cfg = row["config"]
     return cfg if isinstance(cfg, dict) else _json.loads(cfg)
 
@@ -35,7 +37,9 @@ async def create_incident(params: dict, state) -> ActionResult:
     """
     cfg = await _get_snow_config(state.get("org_id"))
     if not cfg:
-        return ActionResult(success=False, message="No ServiceNow connector configured for this org.")
+        return ActionResult(
+            success=False, message="No ServiceNow connector configured for this org."
+        )
 
     payload = {
         "short_description": params.get("short_description", "Incident created via RAG agent"),
@@ -76,7 +80,9 @@ async def resolve_incident(params: dict, state) -> ActionResult:
     """
     cfg = await _get_snow_config(state.get("org_id"))
     if not cfg:
-        return ActionResult(success=False, message="No ServiceNow connector configured for this org.")
+        return ActionResult(
+            success=False, message="No ServiceNow connector configured for this org."
+        )
 
     # Allow caller to pass sys_id directly or look it up by number
     sys_id = params.get("sys_id")
@@ -85,6 +91,7 @@ async def resolve_incident(params: dict, state) -> ActionResult:
     # Fall back: scan message history for the most-recently mentioned INC number
     if not sys_id and not incident_number:
         import re as _re
+
         for msg in reversed(state.get("messages", [])):
             m = _re.search(r"\bINC\d+\b", msg.get("content", ""), _re.IGNORECASE)
             if m:
@@ -103,16 +110,28 @@ async def resolve_incident(params: dict, state) -> ActionResult:
                     f"{base}/api/now/table/incident",
                     auth=auth,
                     headers=headers,
-                    params={"sysparm_query": f"number={incident_number}", "sysparm_fields": "sys_id,number", "sysparm_limit": 1},
+                    params={
+                        "sysparm_query": f"number={incident_number}",
+                        "sysparm_fields": "sys_id,number",
+                        "sysparm_limit": 1,
+                    },
                 )
                 resp.raise_for_status()
                 records = resp.json().get("result", [])
                 if not records:
-                    return ActionResult(success=False, message=f"Incident {incident_number} not found.")
+                    return ActionResult(
+                        success=False, message=f"Incident {incident_number} not found."
+                    )
                 sys_id = records[0]["sys_id"]
 
             if not sys_id:
-                return ActionResult(success=False, message="Could not determine which incident to resolve. Please specify the incident number.")
+                return ActionResult(
+                    success=False,
+                    message=(
+                        "Could not determine which incident to resolve. "
+                        "Please specify the incident number."
+                    ),
+                )
 
             # Resolve: state=6 (Resolved) in ServiceNow
             patch_payload = {
@@ -146,7 +165,9 @@ async def create_change_request(params: dict, state) -> ActionResult:
     """
     cfg = await _get_snow_config(state.get("org_id"))
     if not cfg:
-        return ActionResult(success=False, message="No ServiceNow connector configured for this org.")
+        return ActionResult(
+            success=False, message="No ServiceNow connector configured for this org."
+        )
 
     payload = {
         "short_description": params.get("short_description", "Change request via RAG agent"),

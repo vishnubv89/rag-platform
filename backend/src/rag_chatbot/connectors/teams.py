@@ -11,6 +11,7 @@ Config keys:
 Indexes Teams channels/messages as documents.
 connector_type = "teams"
 """
+
 import httpx
 
 from rag_chatbot.connectors.base import BaseConnector, ConnectorDocument, RemoteDocument
@@ -61,11 +62,7 @@ class TeamsConnector(BaseConnector):
 
     async def _list_channels(self, client: httpx.AsyncClient, token: str) -> list[dict]:
         team_id = self.config["team_id"]
-        configured = [
-            c.strip()
-            for c in self.config.get("channel_ids", "").split(",")
-            if c.strip()
-        ]
+        configured = [c.strip() for c in self.config.get("channel_ids", "").split(",") if c.strip()]
         r = await client.get(
             f"{_GRAPH_BASE}/teams/{team_id}/channels",
             headers=self._headers(token),
@@ -96,12 +93,14 @@ class TeamsConnector(BaseConnector):
                 for msg in r.json().get("value", []):
                     msg_id = msg["id"]
                     created = msg.get("createdDateTime", "")
-                    results.append(RemoteDocument(
-                        external_id=f"{team_id}:{ch_id}:{msg_id}",
-                        title=f"{ch_name} — {msg_id}",
-                        source_url=msg.get("webUrl", ""),
-                        updated_at=created,
-                    ))
+                    results.append(
+                        RemoteDocument(
+                            external_id=f"{team_id}:{ch_id}:{msg_id}",
+                            title=f"{ch_name} — {msg_id}",
+                            source_url=msg.get("webUrl", ""),
+                            updated_at=created,
+                        )
+                    )
 
         return results
 
@@ -149,5 +148,10 @@ class TeamsConnector(BaseConnector):
             title=f"{ch_name} — {msg_id}",
             text="\n".join(lines),
             source_url=parent.get("webUrl", ""),
-            metadata={"team_id": team_id, "channel_id": ch_id, "message_id": msg_id, "source": "teams"},
+            metadata={
+                "team_id": team_id,
+                "channel_id": ch_id,
+                "message_id": msg_id,
+                "source": "teams",
+            },
         )

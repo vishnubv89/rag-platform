@@ -6,10 +6,10 @@ Auth endpoints:
   POST /auth/logout  — clear refresh cookie
   GET  /auth/me      — current user info
 """
-from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel, EmailStr
 
 import jwt
+from fastapi import APIRouter, HTTPException, Request, Response, status
+from pydantic import BaseModel, EmailStr
 
 from rag_chatbot.auth.password import hash_password, verify_password
 from rag_chatbot.auth.tokens import (
@@ -27,12 +27,13 @@ _COOKIE_MAX_AGE = 7 * 24 * 3600  # 7 days in seconds
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def _set_refresh_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=_REFRESH_COOKIE,
         value=token,
         httponly=True,
-        secure=False,        # set True when behind HTTPS in production
+        secure=False,  # set True when behind HTTPS in production
         samesite="lax",
         max_age=_COOKIE_MAX_AGE,
         path="/auth/refresh",
@@ -52,6 +53,7 @@ async def _get_user_by_id(conn, user_id: int) -> dict | None:
 
 
 # ── schemas ───────────────────────────────────────────────────────────────────
+
 
 class SetupRequest(BaseModel):
     email: EmailStr
@@ -79,6 +81,7 @@ class UserResponse(BaseModel):
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.post("/setup", response_model=TokenResponse, status_code=201)
 async def setup(body: SetupRequest, response: Response):
     """Create the first superadmin. Returns 409 if any user already exists."""
@@ -93,7 +96,9 @@ async def setup(body: SetupRequest, response: Response):
         user_id = await conn.fetchval(
             """INSERT INTO users (email, name, password_hash, role)
                VALUES ($1, $2, $3, 'superadmin') RETURNING id""",
-            body.email, body.name, hash_password(body.password),
+            body.email,
+            body.name,
+            hash_password(body.password),
         )
 
     access = create_access_token(user_id, "superadmin", None)
@@ -138,10 +143,14 @@ async def refresh_token(request: Request, response: Response):
         user_id = decode_refresh_token(token)
     except jwt.ExpiredSignatureError:
         _clear_refresh_cookie(response)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired"
+        )
     except jwt.InvalidTokenError:
         _clear_refresh_cookie(response)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -166,7 +175,6 @@ async def logout(response: Response):
 @router.get("/me", response_model=UserResponse)
 async def me(request: Request):
     from rag_chatbot.api.deps import require_user
+
     user = await require_user(request)
     return UserResponse(**user)
-
-

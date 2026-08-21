@@ -6,7 +6,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { KnowledgeHub } from "./components/KnowledgeHub";
-import { DocCreator } from "./components/DocCreator";
+import { DocCurator } from "./components/DocCurator";
 import { Analytics } from "./components/Analytics";
 import { BIEmbed } from "./components/BIEmbed";
 import { OrgSelector } from "./components/OrgSelector";
@@ -17,13 +17,12 @@ import { useIsMobile } from "./hooks/useIsMobile";
 
 const queryClient = new QueryClient();
 
-type App = "chat" | "knowledge" | "creator" | "dashboards" | "analytics";
+type App = "chat" | "knowledge" | "creator" | "analytics";
 
 const APP_LABELS: Record<App, string> = {
   chat:       "Chat",
   knowledge:  "Knowledge Hub",
-  creator:    "Doc Creator",
-  dashboards: "Dashboards",
+  creator:    "Doc Curator",
   analytics:  "Analytics",
 };
 
@@ -37,12 +36,8 @@ const BOTTOM_NAV: { id: App; label: string; icon: React.ReactNode }[] = [
     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>,
   },
   {
-    id: "creator", label: "Creator",
+    id: "creator", label: "Curator",
     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>,
-  },
-  {
-    id: "dashboards", label: "Dashboards",
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>,
   },
   {
     id: "analytics", label: "Analytics",
@@ -142,9 +137,8 @@ function Portal() {
         <main className="flex-1 overflow-hidden" style={{ paddingBottom: isMobile ? 56 : 0 }}>
           {activeApp === "chat"       && <ChatWindow />}
           {activeApp === "knowledge"  && <KnowledgeHub />}
-          {activeApp === "creator"    && <DocCreator />}
-          {activeApp === "dashboards" && <DashboardsView />}
-          {activeApp === "analytics"  && <Analytics />}
+          {activeApp === "creator"    && <DocCurator />}
+          {activeApp === "analytics"  && <AnalyticsView />}
         </main>
       </div>
 
@@ -181,39 +175,33 @@ function Portal() {
 }
 
 /**
- * Placeholder page for the Dashboards tab.
- * Renders BIEmbed cards for any configured embed URLs sourced from env vars.
- * When no URLs are configured it shows a helpful empty state with setup instructions.
+ * Analytics tab — native platform charts + optional external BI embeds.
+ * Set VITE_POWERBI_EMBED_URL or VITE_LOOKER_EMBED_URL at build time to
+ * show Power BI / Looker panels below the native dashboard.
  */
-function DashboardsView() {
+function AnalyticsView() {
   const powerBiUrl = import.meta.env.VITE_POWERBI_EMBED_URL ?? "";
   const lookerUrl  = import.meta.env.VITE_LOOKER_EMBED_URL  ?? "";
-
-  if (!powerBiUrl && !lookerUrl) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4" style={{ color: "#9ca3af" }}>
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
-          <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
-        </svg>
-        <div className="text-center">
-          <p className="text-sm font-medium text-gray-500">No dashboards configured</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Set <code className="font-mono bg-gray-100 px-1 rounded">VITE_POWERBI_EMBED_URL</code> or{" "}
-            <code className="font-mono bg-gray-100 px-1 rounded">VITE_LOOKER_EMBED_URL</code> and rebuild the frontend.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const hasBI = powerBiUrl || lookerUrl;
 
   return (
-    <div className="h-full overflow-y-auto p-6 flex flex-col gap-6">
-      {powerBiUrl && (
-        <BIEmbed type="powerbi" embedUrl={powerBiUrl} title="Power BI Report" height="560px" />
-      )}
-      {lookerUrl && (
-        <BIEmbed type="looker" embedUrl={lookerUrl} title="Looker Dashboard" height="560px" />
+    <div className="h-full overflow-y-auto">
+      <Analytics />
+
+      {hasBI && (
+        <div className="px-6 pb-6 flex flex-col gap-6">
+          <div className="flex items-center gap-3 pt-2">
+            <div className="flex-1 h-px" style={{ background: "#e5e7eb" }} />
+            <span className="text-xs text-gray-400 font-medium">External Dashboards</span>
+            <div className="flex-1 h-px" style={{ background: "#e5e7eb" }} />
+          </div>
+          {powerBiUrl && (
+            <BIEmbed type="powerbi" embedUrl={powerBiUrl} title="Power BI Report" height="560px" />
+          )}
+          {lookerUrl && (
+            <BIEmbed type="looker" embedUrl={lookerUrl} title="Looker Dashboard" height="560px" />
+          )}
+        </div>
       )}
     </div>
   );

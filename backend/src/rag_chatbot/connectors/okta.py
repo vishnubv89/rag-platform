@@ -8,6 +8,7 @@ Config keys:
 Syncs Okta group memberships for a user into user_attributes.
 connector_type = "okta"
 """
+
 import httpx
 
 from rag_chatbot.connectors.base import BaseConnector, ConnectorDocument, RemoteDocument
@@ -86,7 +87,9 @@ class OktaConnector(BaseConnector):
                            VALUES ($1, $2, $3)
                            ON CONFLICT (user_id, attr_type, attr_value) DO UPDATE
                            SET synced_at = now()""",
-                        user_id, "group", name,
+                        user_id,
+                        "group",
+                        name,
                     )
                 if department:
                     await conn.execute(
@@ -94,5 +97,7 @@ class OktaConnector(BaseConnector):
                            VALUES ($1, $2, $3)
                            ON CONFLICT (user_id, attr_type, attr_value) DO UPDATE
                            SET synced_at = now()""",
-                        user_id, "department", department,
+                        user_id,
+                        "department",
+                        department,
                     )
