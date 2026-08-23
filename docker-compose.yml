@@ -35,6 +35,8 @@ services:
       # Zitadel is reachable inside Docker via the service name on its internal
       # port (8080).  The external port 8088 is only accessible on the host.
       ZITADEL_INTERNAL_URL: http://zitadel:8080
+      STT_URL: http://voice-stt:8000
+      TTS_URL: http://voice-tts:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +79,39 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Voice — self-hosted STT/TTS, internal-only (no ports exposed to the host).
+  # Backend proxies to these over the Docker network at /voice/transcribe and
+  # /voice/speak. No API keys, no external quota — CPU-only inference.
+  # ---------------------------------------------------------------------------
+  voice-stt:
+    build:
+      context: ./voice-stt
+      dockerfile: Dockerfile
+      args:
+        WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-base}
+    container_name: rag_voice_stt
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  voice-tts:
+    build:
+      context: ./voice-tts
+      dockerfile: Dockerfile
+    container_name: rag_voice_tts
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
 
   backup:
     image: pgvector/pgvector:pg17
