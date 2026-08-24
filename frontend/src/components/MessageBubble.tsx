@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { SourceCitations } from "./SourceCitations";
 import { submitFeedback, speakText } from "../api/client";
+import { stripMarkdown } from "../utils/stripMarkdown";
 import type { ChatMessage } from "../types";
 
 interface Props {
@@ -33,7 +34,7 @@ export function MessageBubble({ message }: Props) {
     }
     setPlayback("loading");
     try {
-      const blob = await speakText(message.content);
+      const blob = await speakText(stripMarkdown(message.content));
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;

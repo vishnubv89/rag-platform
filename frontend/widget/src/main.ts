@@ -339,6 +339,29 @@
 
   // ── Voice output — speaker button appended after each finished reply ──────
 
+  // Strips common markdown so TTS doesn't read punctuation literally
+  // (e.g. "**bold**" -> "asterisk asterisk bold asterisk asterisk").
+  function stripMarkdown(text: string): string {
+    return text
+      .replace(/```[\w-]*\n?([\s\S]*?)```/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/\*\*\*([^*]+)\*\*\*/g, "$1")
+      .replace(/___([^_]+)___/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/_([^_]+)_/g, "$1")
+      .replace(/~~([^~]+)~~/g, "$1")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/^>\s?/gm, "")
+      .replace(/^\s*[-*+]\s+/gm, "")
+      .replace(/^\s*\d+\.\s+/gm, "")
+      .replace(/[*_`#]/g, "")
+      .trim();
+  }
+
   let currentAudio: HTMLAudioElement | null = null;
 
   function addSpeakButton(afterEl: HTMLElement, text: string) {
@@ -366,7 +389,7 @@
         const resp = await fetch(`${cfg.apiUrl}/voice/speak`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Embed-Token": cfg.token },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text: stripMarkdown(text) }),
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
