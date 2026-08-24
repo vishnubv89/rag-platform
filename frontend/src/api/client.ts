@@ -76,6 +76,30 @@ export async function ingestFile(file: File): Promise<IngestResponse> {
   return res.json();
 }
 
+export async function transcribeAudio(audio: Blob): Promise<{ text: string; language: string }> {
+  const form = new FormData();
+  form.append("file", audio, "speech.webm");
+  const res = await fetch(`${BASE}/voice/transcribe`, {
+    method: "POST",
+    headers: authHeaders(),
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function speakText(text: string): Promise<Blob> {
+  const res = await fetch(`${BASE}/voice/speak`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    credentials: "include",
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.blob();
+}
+
 const ADMIN_HEADERS = { "X-Admin-Key": import.meta.env.VITE_ADMIN_KEY ?? "change-me" };
 
 export async function listOrgs(): Promise<Org[]> {
