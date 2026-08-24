@@ -188,6 +188,39 @@
     .input-row button:hover { filter: brightness(0.88); }
     .input-row button:disabled { filter: grayscale(0.4) brightness(1.3); cursor: default; }
 
+    .mic-btn {
+      flex-shrink: 0;
+      width: 34px; height: 34px;
+      padding: 0;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: white;
+      color: #6b7280;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s, border-color .15s;
+    }
+    .mic-btn svg { width: 15px; height: 15px; }
+    .mic-btn.recording {
+      background: #FCEBEB; border-color: #F7C1C1; color: #791F1F;
+      animation: mic-pulse 1.4s ease-in-out infinite;
+    }
+    .mic-btn:disabled { opacity: .5; cursor: default; animation: none; }
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(121,31,31,.35); }
+      50% { box-shadow: 0 0 0 5px rgba(121,31,31,0); }
+    }
+
+    .msg-actions { margin: -4px 0 2px; }
+    .msg-actions .speak-btn {
+      background: none; border: none; cursor: pointer;
+      color: #9ca3af; padding: 2px; opacity: .8;
+      display: inline-flex; align-items: center;
+    }
+    .msg-actions .speak-btn:hover { opacity: 1; }
+    .msg-actions .speak-btn svg { width: 13px; height: 13px; }
+    .msg-actions .speak-btn.playing svg { color: var(--accent); }
+
     .powered-by {
       text-align: center;
       font-size: 10px;
@@ -245,6 +278,13 @@
       </div>
     </div>
     <div class="input-row">
+      <button id="mic-btn" class="mic-btn" type="button" aria-label="Speak your question">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+        </svg>
+      </button>
       <input type="text" id="chat-input" placeholder="Ask a question…" autocomplete="off" />
       <button id="send-btn">Send</button>
     </div>
@@ -255,6 +295,7 @@
   const msgList = shadow.getElementById("msg-list")!;
   const input = shadow.getElementById("chat-input") as HTMLInputElement;
   const sendBtn = shadow.getElementById("send-btn") as HTMLButtonElement;
+  const micBtn = shadow.getElementById("mic-btn") as HTMLButtonElement;
 
   function applyAppearance() {
     styleEl.textContent = css.replace(
@@ -293,7 +334,132 @@
     busy = v;
     sendBtn.disabled = v;
     input.disabled = v;
+    micBtn.disabled = v || micState === "transcribing";
   }
+
+  // ── Voice output — speaker button appended after each finished reply ──────
+
+  let currentAudio: HTMLAudioElement | null = null;
+
+  function addSpeakButton(afterEl: HTMLElement, text: string) {
+    if (!text.trim()) return;
+    const row = document.createElement("div");
+    row.className = "msg-actions";
+    const btn = document.createElement("button");
+    btn.className = "speak-btn";
+    btn.type = "button";
+    btn.title = "Play aloud";
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>' +
+      '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+
+    btn.addEventListener("click", async () => {
+      if (currentAudio && !currentAudio.paused) {
+        currentAudio.pause();
+        currentAudio = null;
+        btn.classList.remove("playing");
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`${cfg.apiUrl}/voice/speak`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Embed-Token": cfg.token },
+          body: JSON.stringify({ text }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const audio = new Audio(URL.createObjectURL(blob));
+        currentAudio = audio;
+        btn.classList.add("playing");
+        audio.onended = () => btn.classList.remove("playing");
+        audio.onerror = () => btn.classList.remove("playing");
+        await audio.play();
+      } catch (err) {
+        console.error("[rag-widget] speak failed", err);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    row.appendChild(btn);
+    afterEl.insertAdjacentElement("afterend", row);
+    msgList.scrollTop = msgList.scrollHeight;
+  }
+
+  // ── Voice input — mic button records, transcribes, fills the input ────────
+
+  let mediaRecorder: MediaRecorder | null = null;
+  let recordedChunks: Blob[] = [];
+  let micState: "idle" | "recording" | "transcribing" = "idle";
+
+  function setMicState(next: typeof micState) {
+    micState = next;
+    micBtn.classList.toggle("recording", next === "recording");
+    micBtn.disabled = next === "transcribing" || busy;
+  }
+
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.warn("[rag-widget] voice input not supported in this browser");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordedChunks = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorder = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordedChunks, { type: "audio/webm" });
+        if (blob.size === 0) {
+          setMicState("idle");
+          return;
+        }
+        setMicState("transcribing");
+        try {
+          const form = new FormData();
+          form.append("file", blob, "speech.webm");
+          const resp = await fetch(`${cfg.apiUrl}/voice/transcribe`, {
+            method: "POST",
+            headers: { "X-Embed-Token": cfg.token },
+            body: form,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const { text } = await resp.json();
+          if (text?.trim()) {
+            input.value = input.value ? `${input.value} ${text.trim()}` : text.trim();
+            input.focus();
+          }
+        } catch (err) {
+          console.error("[rag-widget] transcribe failed", err);
+        } finally {
+          setMicState("idle");
+        }
+      };
+
+      recorder.start();
+      setMicState("recording");
+    } catch {
+      console.warn("[rag-widget] microphone access denied");
+      setMicState("idle");
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder?.state === "recording") mediaRecorder.stop();
+  }
+
+  micBtn.addEventListener("click", () => {
+    if (micState === "recording") stopRecording();
+    else if (micState === "idle") startRecording();
+  });
 
   // ── Send ──────────────────────────────────────────────────────────────────
 
@@ -354,6 +520,7 @@
               typing.textContent = accumulated || ev.answer || "";
               typing.classList.remove("typing");
               history.push({ role: "assistant", content: accumulated });
+              addSpeakButton(typing, accumulated || ev.answer || "");
             } else if (ev.type === "error") {
               throw new Error(ev.message);
             }
