@@ -11,7 +11,23 @@ CONFIG_KEYS = [
     "embedding_model", "embedding_dim",
     "retrieval_top_k", "grader_max_loops",
     "chunk_size", "chunk_overlap",
+    "feature_content_gap",
+    "feature_widget",
+    "feature_doc_acls",
+    "feature_actions",
+    "feature_followup",
+    "feature_suggest",
+    "feature_knowledge_health",
+    "feature_audit_log",
 ]
+
+# Opt-in flags: default off, enabled when "true"
+_FLAGS_OPT_IN = ["feature_content_gap", "feature_widget", "feature_doc_acls"]
+# Opt-out flags: default on, disabled when "false"
+_FLAGS_OPT_OUT = ["feature_actions", "feature_followup", "feature_suggest",
+                  "feature_knowledge_health", "feature_audit_log"]
+
+FEATURE_FLAGS = _FLAGS_OPT_IN + _FLAGS_OPT_OUT
 
 
 @router.get("/settings")
@@ -56,6 +72,8 @@ async def save_settings(
     chunk_overlap: str = Form(""),
 ):
     org_id_int = int(org_id) if org_id else None
+    form = await request.form()
+
     new_cfg: dict[str, str] = {
         "llm_provider": llm_provider,
         "llm_model": llm_model,
@@ -73,6 +91,13 @@ async def save_settings(
         new_cfg["anthropic_api_key"] = anthropic_api_key
     if nvidia_api_key:
         new_cfg["nvidia_api_key"] = nvidia_api_key
+
+    # Opt-in flags: off by default — only "true" when checkbox is checked
+    for flag in _FLAGS_OPT_IN:
+        new_cfg[flag] = "true" if form.get(flag) == "true" else "false"
+    # Opt-out flags: on by default — only "false" when checkbox is unchecked
+    for flag in _FLAGS_OPT_OUT:
+        new_cfg[flag] = "false" if form.get(flag) != "true" else "true"
 
     await client.update_config(
         org_id=org_id_int, cfg={k: v for k, v in new_cfg.items() if v}

@@ -19,11 +19,11 @@ export function SourceCitations({ sources, loopCount }: Props) {
     <details className="mt-2">
       <summary
         className="text-xs cursor-pointer select-none"
-        style={{ color: "#9ca3af" }}
+        style={{ color: "var(--cds-text-faint)" }}
       >
         {uniqueDocs.length} source{uniqueDocs.length !== 1 ? "s" : ""}
         {loopCount > 0 && (
-          <span className="ml-2" style={{ color: "#bfdbfe" }}>
+          <span className="ml-2" style={{ color: "#F0997B" }}>
             {loopCount} retrieval loop{loopCount !== 1 ? "s" : ""}
           </span>
         )}
@@ -35,9 +35,9 @@ export function SourceCitations({ sources, loopCount }: Props) {
             fontSize: "0.7rem",
             padding: "3px 8px",
             borderRadius: 6,
-            border: "1px solid #e8e8ea",
-            background: "#f7f7f8",
-            color: "#4b5563",
+            border: "1px solid var(--cds-border)",
+            background: "var(--cds-surface-tint)",
+            color: "var(--cds-text-secondary)",
             maxWidth: 200,
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -52,9 +52,9 @@ export function SourceCitations({ sources, loopCount }: Props) {
               target="_blank"
               rel="noopener noreferrer"
               title={doc.doc_source}
-              style={{ ...baseStyle, color: "#2563eb", background: "#eff6ff", borderColor: "#bfdbfe" }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#dbeafe"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#eff6ff"; }}
+              style={{ ...baseStyle, color: "var(--cds-accent-text)", background: "var(--cds-accent-tint)", borderColor: "#F5C4B3" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#F5C4B3"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "var(--cds-accent-tint)"; }}
             >
               {label}
             </a>

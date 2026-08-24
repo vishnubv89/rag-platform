@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %} — Chatbots{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0">Chatbots</h4>
+  {% set _org = (orgs | selectattr('id', 'equalto', active_org_id) | first) if active_org_id else none %}
+  {% if _org %}<span class="scope-badge scope-org"><i class="bi bi-building"></i>{{ _org.name }}</span>
+  {% else %}<span class="scope-badge scope-all"><i class="bi bi-globe2"></i>Select an org to manage chatbots</span>{% endif %}
+</div>
+
+{% if not active_org_id %}
+<div class="alert alert-info">Select an organisation from the sidebar to create and manage its chatbots.</div>
+{% else %}
+
+<!-- ── New embed token reveal ──────────────────────────────────────────── -->
+{% if new_key %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+  <strong>Chatbot created!</strong> Copy the embed token now — it will not be shown again.
+  <div class="input-group mt-2" style="max-width:560px">
+    <input id="newKeyInput" type="text" class="form-control font-monospace" value="{{ new_key }}" readonly>
+    <button class="btn btn-outline-secondary" type="button"
+            onclick="navigator.clipboard.writeText(document.getElementById('newKeyInput').value).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)})">Copy</button>
+  </div>
+  <div class="mt-2 small text-muted">Use this token as <code>data-token</code> in your embed snippet (see below).</div>
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<!-- ── Chatbot list ────────────────────────────────────────────────────── -->
+{% if chatbots %}
+<div class="row g-3 mb-4">
+  {% for cb in chatbots %}
+  <div class="col-12">
+    <div class="card stat-card {% if not cb.is_active %}border-secondary opacity-75{% endif %}">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+          <i class="bi bi-robot me-2"></i>{{ cb.name }}
+          {% if not cb.is_active %}<span class="badge bg-secondary ms-2">Inactive</span>{% endif %}
+        </span>
+        <div class="d-flex gap-2">
+          <!-- Toggle active -->
+          <form method="post" action="/chatbots/{{ cb.id }}/toggle">
+            <input type="hidden" name="is_active" value="{{ 'false' if cb.is_active else 'true' }}">
+            <button type="submit" class="btn btn-sm {% if cb.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}">
+              {{ 'Disable' if cb.is_active else 'Enable' }}
+            </button>
+          </form>
+          <!-- Delete -->
+          <form method="post" action="/chatbots/{{ cb.id }}/delete"
+                onsubmit="return confirm('Delete chatbot {{ cb.name }}?')">
+            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if cb.description %}<p class="text-muted small mb-3">{{ cb.description }}</p>{% endif %}
+
+        <!-- Edit form -->
+        <form method="post" action="/chatbots/{{ cb.id }}/update">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Name</label>
+              <input class="form-control" name="name" value="{{ cb.name }}" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Welcome Message</label>
+              <input class="form-control" name="welcome_message" value="{{ cb.welcome_message or '' }}"
+                     placeholder="Hi! How can I help you today?">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Description</label>
+              <input class="form-control" name="description" value="{{ cb.description or '' }}"
+                     placeholder="Brief note on where this chatbot is deployed">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Accent Color</label>
+              <div class="input-group">
+                <input class="form-control form-control-color" type="color" name="accent_color" oninput="this.nextElementSibling.value=this.value"
+                       value="{{ cb.accent_color or '#D85A30' }}" title="Bubble and header color">
+                <input class="form-control font-monospace" value="{{ cb.accent_color or '#D85A30' }}" disabled>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Position</label>
+              <select class="form-select" name="position">
+                <option value="bottom-right" {% if (cb.position or 'bottom-right') == 'bottom-right' %}selected{% endif %}>Bottom right</option>
+                <option value="bottom-left" {% if cb.position == 'bottom-left' %}selected{% endif %}>Bottom left</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">System Instruction</label>
+              <textarea class="form-control font-monospace" name="system_instruction" rows="5"
+                        placeholder="You are a helpful assistant for Acme Corp's IT helpdesk. Focus on IT support topics. Be concise and friendly.">{{ cb.system_instruction or '' }}</textarea>
+              <div class="form-text">Prepended to the base RAG prompt. Defines the chatbot's persona, tone, and topic focus.</div>
+            </div>
+          </div>
+          <div class="mt-3 d-flex align-items-center gap-3">
+            <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
+            <span class="text-muted small">
+              Created {{ cb.created_at[:10] if cb.created_at else '—' }}
+              {% if cb.last_used %} · Last used {{ cb.last_used[:10] }}{% endif %}
+            </span>
+          </div>
+        </form>
+
+        <!-- Embed snippet -->
+        <hr class="my-3">
+        <p class="fw-semibold small mb-1"><i class="bi bi-code-slash me-1"></i>Embed Snippet</p>
+        <p class="text-muted small mb-2">Drop this into any HTML page — appearance (color, position, welcome message) is controlled here, not in the snippet. Replace <code>YOUR_TOKEN_HERE</code> with the embed token shown when this chatbot was created.</p>
+        <pre class="bg-dark text-light p-2 rounded small" style="white-space:pre-wrap;word-break:break-all;" id="snippet-{{ cb.id }}">&lt;script
+  src="{{ request.base_url.scheme }}://{{ request.base_url.hostname }}:5173/widget/chat-widget.js"
+  data-token="YOUR_TOKEN_HERE"
+&gt;&lt;/script&gt;</pre>
+        <button class="btn btn-sm btn-outline-secondary mt-1"
+                onclick="navigator.clipboard.writeText(document.getElementById('snippet-{{ cb.id }}').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">
+          Copy
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-light border">No chatbots yet for this organisation. Create one below.</div>
+{% endif %}
+
+<!-- ── Create new chatbot ───────────────────────────────────────────────── -->
+<div class="card stat-card">
+  <div class="card-header fw-semibold"><i class="bi bi-plus-circle me-2"></i>New Chatbot</div>
+  <div class="card-body">
+    <form method="post" action="/chatbots">
+      <input type="hidden" name="org_id" value="{{ active_org_id }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+          <input class="form-control" name="name" required placeholder="IT Helpdesk Bot">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Welcome Message</label>
+          <input class="form-control" name="welcome_message" placeholder="Hi! How can I help you today?">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Description</label>
+          <input class="form-control" name="description" placeholder="Deployed on the IT portal homepage">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Accent Color</label>
+          <div class="input-group">
+            <input class="form-control form-control-color" type="color" name="accent_color" oninput="this.nextElementSibling.value=this.value"
+                   value="#D85A30" title="Bubble and header color">
+            <input class="form-control font-monospace" value="#D85A30" disabled>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Position</label>
+          <select class="form-select" name="position">
+            <option value="bottom-right" selected>Bottom right</option>
+            <option value="bottom-left">Bottom left</option>
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold">System Instruction</label>
+          <textarea class="form-control font-monospace" name="system_instruction" rows="5"
+                    placeholder="You are a helpful assistant for Acme Corp's IT helpdesk. Focus on IT support topics only. Be concise and friendly. Always direct users to submit tickets for hardware issues."></textarea>
+          <div class="form-text">Defines this chatbot's persona and topic scope. Prepended to the base RAG grounding rules so factual accuracy is always maintained.</div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary mt-3">Create Chatbot</button>
+    </form>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

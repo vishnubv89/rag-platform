@@ -7,6 +7,8 @@ import tempfile
 import time
 from uuid import UUID, uuid4
 
+import httpx
+
 _rag_log = logging.getLogger("rag_chatbot")
 _rag_log.setLevel(logging.INFO)
 if not _rag_log.handlers:
@@ -14,7 +16,7 @@ if not _rag_log.handlers:
     _h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
     _rag_log.addHandler(_h)
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, Header, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from slowapi.errors import RateLimitExceeded
@@ -81,6 +83,7 @@ app.include_router(enrich_router)  # /internal/zitadel/enrich — internal only
 # Request / Response schemas
 # ---------------------------------------------------------------------------
 
+
 class ChatRequest(BaseModel):
     message: str
     history: list[dict] = []
@@ -115,6 +118,10 @@ class FollowUpResponse(BaseModel):
     suggestions: list[str]
 
 
+class SpeakRequest(BaseModel):
+    text: str
+
+
 class IngestTextRequest(BaseModel):
     title: str
     text: str
@@ -130,6 +137,7 @@ class IngestResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
@@ -159,18 +167,23 @@ async def chat(req: ChatRequest, request: Request):
         "action_result": None,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "answer_type": "generator",
+        "local_user_id": None,
+        "system_instruction": user.get("system_instruction", ""),
     }
     # Resolve org_id: user's own org > explicit request field > default org
     pool = await get_pool()
     async with pool.acquire() as conn:
         org_id = (
-            user.get("org_id")        # SSO/local user's assigned org (primary)
-            or req.org_id             # explicit override in request (superadmin)
+            user.get("org_id")  # SSO/local user's assigned org (primary)
+            or req.org_id  # explicit override in request (superadmin)
             or await conn.fetchval("SELECT id FROM organizations WHERE slug='default'")
         )
-        rows = await conn.fetch(
-            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-        ) if org_id else []
+        rows = (
+            await conn.fetch("SELECT key, value FROM app_config WHERE org_id=$1", org_id)
+            if org_id
+            else []
+        )
     llm_config = {r["key"]: r["value"] for r in rows}
 
     lf = get_langfuse()
@@ -178,7 +191,12 @@ async def chat(req: ChatRequest, request: Request):
     t0 = time.monotonic()
     try:
         from langfuse._client.propagation import _propagate_attributes
-        _state = initial_state | {"llm_config": llm_config, "org_id": org_id}
+
+        _state = initial_state | {
+            "llm_config": llm_config,
+            "org_id": org_id,
+            "local_user_id": user.get("id"),
+        }
         if lf:
             with _propagate_attributes(
                 user_id=str(user.get("id")),
@@ -206,8 +224,8 @@ async def chat(req: ChatRequest, request: Request):
                 INSERT INTO chat_logs
                     (org_id, session_id, user_message, assistant_response,
                      source_chunk_ids, loop_count, latency_ms, user_id,
-                     prompt_tokens, completion_tokens)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                     prompt_tokens, completion_tokens, answer_type)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                 """,
                 org_id,
                 UUID(session_id),
@@ -219,6 +237,7 @@ async def chat(req: ChatRequest, request: Request):
                 user["id"],
                 final_state.get("prompt_tokens", 0),
                 final_state.get("completion_tokens", 0),
+                final_state.get("answer_type", "generator"),
             )
 
     return ChatResponse(
@@ -243,13 +262,15 @@ async def chat_stream(req: ChatRequest, request: Request):
     pool = await get_pool()
     async with pool.acquire() as conn:
         org_id = (
-            user.get("org_id")        # SSO/local user's assigned org (primary)
-            or req.org_id             # explicit override (superadmin)
+            user.get("org_id")  # SSO/local user's assigned org (primary)
+            or req.org_id  # explicit override (superadmin)
             or await conn.fetchval("SELECT id FROM organizations WHERE slug='default'")
         )
-        rows = await conn.fetch(
-            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-        ) if org_id else []
+        rows = (
+            await conn.fetch("SELECT key, value FROM app_config WHERE org_id=$1", org_id)
+            if org_id
+            else []
+        )
     llm_config = {r["key"]: r["value"] for r in rows}
 
     initial_state = {
@@ -271,12 +292,16 @@ async def chat_stream(req: ChatRequest, request: Request):
         "action_result": None,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "answer_type": "generator",
+        "local_user_id": user.get("id"),
+        "system_instruction": user.get("system_instruction", ""),
     }
 
     lf = get_langfuse()
 
     async def event_generator():
         from langfuse._client.propagation import _propagate_attributes
+
         t0 = time.monotonic()
         final_state: dict = {}
         lf_trace = None
@@ -295,9 +320,7 @@ async def chat_stream(req: ChatRequest, request: Request):
                 input={"query": req.message},
             )
         try:
-            async for event in rag_graph.astream_events(
-                initial_state, version="v2"
-            ):
+            async for event in rag_graph.astream_events(initial_state, version="v2"):
                 if event["event"] == "on_custom_event" and event["name"] == "stream_token":
                     token = event["data"].get("token", "")
                     if token:
@@ -328,8 +351,8 @@ async def chat_stream(req: ChatRequest, request: Request):
                     INSERT INTO chat_logs
                         (org_id, session_id, user_message, assistant_response,
                          source_chunk_ids, loop_count, latency_ms, user_id,
-                         prompt_tokens, completion_tokens)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                         prompt_tokens, completion_tokens, answer_type)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                     RETURNING id
                     """,
                     org_id,
@@ -342,6 +365,7 @@ async def chat_stream(req: ChatRequest, request: Request):
                     user["id"],
                     final_state.get("prompt_tokens", 0),
                     final_state.get("completion_tokens", 0),
+                    final_state.get("answer_type", "generator"),
                 )
 
         yield f"data: {json.dumps({'type': 'done', 'log_id': log_id, 'answer': final_state.get('answer', ''), 'source_chunk_ids': final_state.get('source_chunk_ids', []), 'sources': final_state.get('sources', []), 'loop_count': final_state.get('loop_count', 0), 'session_id': session_id})}\n\n"
@@ -388,16 +412,22 @@ _SUGGEST_SYSTEM = (
 @limiter.limit("30/minute")
 async def suggest(req: SuggestRequest, request: Request):
     await require_user(request)
-    import asyncio
     pool = await get_pool()
     async with pool.acquire() as conn:
         org_id = req.org_id or await conn.fetchval(
             "SELECT id FROM organizations WHERE slug='default'"
         )
-        rows = await conn.fetch(
-            "SELECT key, value FROM app_config WHERE org_id=$1", org_id
-        ) if org_id else []
+        rows = (
+            await conn.fetch("SELECT key, value FROM app_config WHERE org_id=$1", org_id)
+            if org_id
+            else []
+        )
     llm_config = {r["key"]: r["value"] for r in rows}
+
+    if llm_config.get("feature_suggest") == "false":
+        raise HTTPException(
+            status_code=403, detail="Doc Creator suggestions are disabled for this organisation."
+        )
 
     query = req.context[-800:].strip()
     try:
@@ -406,9 +436,7 @@ async def suggest(req: SuggestRequest, request: Request):
         docs = []
 
     if docs:
-        context_block = "\n\n".join(
-            f"[{d.get('doc_title','Unknown')}]\n{d['text']}" for d in docs
-        )
+        context_block = "\n\n".join(f"[{d.get('doc_title', 'Unknown')}]\n{d['text']}" for d in docs)
         prompt = f"Document so far:\n{req.context}\n\nReference material:\n{context_block}"
     else:
         prompt = f"Document so far:\n{req.context}"
@@ -422,7 +450,11 @@ async def suggest(req: SuggestRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
     sources = [
-        {"doc_id": d["doc_id"], "doc_title": d.get("doc_title", ""), "doc_source": d.get("doc_source", "")}
+        {
+            "doc_id": d["doc_id"],
+            "doc_title": d.get("doc_title", ""),
+            "doc_source": d.get("doc_source", ""),
+        }
         for d in docs
     ]
     seen: set[int] = set()
@@ -442,12 +474,14 @@ _FOLLOWUP_SYSTEM = (
 @limiter.limit("60/minute")
 async def chat_followup(req: FollowUpRequest, request: Request):
     await require_user(request)
-    import asyncio
-    import json as _json
+    if req.org_id:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT key, value FROM app_config WHERE org_id=$1", req.org_id)
+        if {r["key"]: r["value"] for r in rows}.get("feature_followup") == "false":
+            return FollowUpResponse(suggestions=[])
     recent = req.messages[-6:]
-    history = "\n".join(
-        f"{m['role'].upper()}: {str(m.get('content',''))[:400]}" for m in recent
-    )
+    history = "\n".join(f"{m['role'].upper()}: {str(m.get('content', ''))[:400]}" for m in recent)
     prompt = (
         f"Conversation so far:\n{history}\n\n"
         "Generate 3 natural follow-up questions the user might want to ask next. "
@@ -520,33 +554,35 @@ async def get_session(session_id: str, request: Request):
         )
     messages = []
     for r in rows:
-        messages.append({
-            "role": "user",
-            "content": r["user_message"],
-            "log_id": None,
-            "source_chunk_ids": [],
-            "sources": [],
-            "feedback": None,
-            "timestamp": r["created_at"].isoformat(),
-        })
-        messages.append({
-            "role": "assistant",
-            "content": r["assistant_response"],
-            "log_id": r["id"],
-            "source_chunk_ids": list(r["source_chunk_ids"] or []),
-            "sources": [],
-            "feedback": r["feedback"],
-            "timestamp": r["created_at"].isoformat(),
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": r["user_message"],
+                "log_id": None,
+                "source_chunk_ids": [],
+                "sources": [],
+                "feedback": None,
+                "timestamp": r["created_at"].isoformat(),
+            }
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": r["assistant_response"],
+                "log_id": r["id"],
+                "source_chunk_ids": list(r["source_chunk_ids"] or []),
+                "sources": [],
+                "feedback": r["feedback"],
+                "timestamp": r["created_at"].isoformat(),
+            }
+        )
     return {"session_id": session_id, "messages": messages}
 
 
 @app.post("/ingest/text", response_model=IngestResponse)
 async def ingest_text_endpoint(req: IngestTextRequest):
     try:
-        result = await ingest_text(
-            text=req.text, title=req.title, source=req.source
-        )
+        result = await ingest_text(text=req.text, title=req.title, source=req.source)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return IngestResponse(**result)
@@ -572,11 +608,116 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/widget/config")
+async def widget_config(
+    org_id: int | None = None,
+    x_embed_token: str = Header(default="", alias="X-Embed-Token"),
+):
+    """Public endpoint — returns only display-safe config for the embeddable widget."""
+    pool = await get_pool()
+    import hashlib as _hl
+
+    if x_embed_token:
+        key_hash = _hl.sha256(x_embed_token.encode()).hexdigest()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT name, welcome_message, accent_color, position, org_id
+                   FROM chatbots WHERE key_hash=$1 AND is_active=TRUE""",
+                key_hash,
+            )
+        if row:
+            return {
+                "chatbot_name": row["name"],
+                "welcome_message": row["welcome_message"] or "",
+                "accent_color": row["accent_color"],
+                "position": row["position"],
+                "org_id": row["org_id"],
+            }
+
+    async with pool.acquire() as conn:
+        if org_id is None:
+            org_id = await conn.fetchval("SELECT id FROM organizations WHERE slug='default'")
+        rows = await conn.fetch("SELECT key, value FROM app_config WHERE org_id=$1", org_id)
+    cfg = {r["key"]: r["value"] for r in rows}
+    return {
+        "chatbot_name": cfg.get("chatbot_name", "Knowledge Mesh"),
+        "welcome_message": "",
+        "accent_color": "#D85A30",
+        "position": "bottom-right",
+        "org_id": org_id,
+    }
+
+
+# ── Voice — thin proxies to the self-hosted STT/TTS services ─────────────────
+# No LLM involved on this path: transcribe just returns text for the caller to
+# feed into the existing /chat or /chat/stream endpoints, and speak just turns
+# a finished answer into audio. Both no-op with a clear error if the voice
+# services aren't configured (STT_URL/TTS_URL unset), so voice stays fully
+# optional without breaking anything when it's not deployed.
+
+
+@app.post("/voice/transcribe")
+@limiter.limit("30/minute")
+async def voice_transcribe(request: Request, file: UploadFile = File(...)):
+    await require_user(request)
+    if not settings.stt_url:
+        raise HTTPException(
+            status_code=503, detail="Voice input is not configured for this deployment."
+        )
+
+    audio = await file.read()
+    upload = (file.filename or "audio.webm", audio, file.content_type or "audio/webm")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{settings.stt_url}/transcribe",
+                files={"file": upload},
+            )
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Transcription service unavailable: {e}")
+
+    return resp.json()
+
+
+@app.post("/voice/speak")
+@limiter.limit("30/minute")
+async def voice_speak(request: Request, req: SpeakRequest):
+    await require_user(request)
+    if not settings.tts_url:
+        raise HTTPException(
+            status_code=503, detail="Voice output is not configured for this deployment."
+        )
+
+    try:
+        client = httpx.AsyncClient(timeout=30.0)
+        resp = await client.post(f"{settings.tts_url}/speak", json={"text": req.text})
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Speech service unavailable: {e}")
+
+    async def stream_and_close():
+        try:
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+        finally:
+            await client.aclose()
+
+    return StreamingResponse(stream_and_close(), media_type="audio/wav")
+
+
 # ── Document topics (user-facing, cached) ────────────────────────────────────
 
 _TOPIC_COLORS = [
-    "#4dabf7", "#69db7c", "#ffa94d", "#da77f2",
-    "#ff6b6b", "#38d9a9", "#ffd43b", "#a9e34b",
+    "#4dabf7",
+    "#69db7c",
+    "#ffa94d",
+    "#da77f2",
+    "#ff6b6b",
+    "#38d9a9",
+    "#ffd43b",
+    "#a9e34b",
 ]
 
 _STOP = frozenset(
@@ -595,12 +736,13 @@ _STOP = frozenset(
 def _keyword_topics(chunks: list[str], n_topics: int = 7) -> list[dict]:
     import re
     from collections import Counter
+
     all_text = " ".join(chunks).lower()
     words = re.findall(r"[a-z][a-z\-]{2,}", all_text)
     words = [w for w in words if w not in _STOP and len(w) > 3]
     uni = Counter(words)
     bi = Counter(
-        f"{words[i]} {words[i+1]}"
+        f"{words[i]} {words[i + 1]}"
         for i in range(len(words) - 1)
         if words[i] not in _STOP and words[i + 1] not in _STOP
     )
@@ -631,9 +773,7 @@ async def get_doc_topics(request: Request, doc_id: int):
     pool = await get_pool()
 
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, title, topics FROM documents WHERE id=$1", doc_id
-        )
+        row = await conn.fetchrow("SELECT id, title, topics FROM documents WHERE id=$1", doc_id)
     if not row:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -653,11 +793,9 @@ async def get_doc_topics(request: Request, doc_id: int):
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE documents SET topics=$1 WHERE id=$2",
-                json.dumps(raw), doc_id,
+                json.dumps(raw),
+                doc_id,
             )
 
-    topics = [
-        {**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]}
-        for i, t in enumerate(raw)
-    ]
+    topics = [{**t, "color": _TOPIC_COLORS[i % len(_TOPIC_COLORS)]} for i, t in enumerate(raw)]
     return {"doc_id": doc_id, "title": row["title"], "topics": topics}

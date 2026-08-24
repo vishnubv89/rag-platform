@@ -17,7 +17,20 @@ _INTER_DELAY = 4.1   # seconds between embedding calls — keeps us under 15 RPM
 def _get_client() -> genai.Client:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=settings.gemini_api_key)
+        # _embed_one_sync below already implements its own deliberate
+        # 60s/120s/240s backoff for 429s. Without disabling the SDK's own
+        # default retry-on-429 behavior, a single embedding call could be
+        # retried twice over — once silently inside the SDK, then again by
+        # our explicit backoff — stacking delay well past what either layer
+        # intends. One fast attempt here leaves retry timing entirely to
+        # _embed_one_sync.
+        _client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=types.HttpOptions(
+                timeout=15000,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
+        )
     return _client
 
 

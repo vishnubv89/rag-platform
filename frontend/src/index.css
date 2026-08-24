@@ -1,13 +1,33 @@
 @import "tailwindcss";
 
+:root {
+  /* Claude design system — warm neutrals + clay accent */
+  --cds-bg: #fdfcfa;
+  --cds-surface: #ffffff;
+  --cds-surface-tint: #f1efe8;
+  --cds-surface-tint-hover: #e5e2d8;
+  --cds-sidebar: #2c2c2a;
+  --cds-border: #e5e2d9;
+  --cds-text-primary: #2c2c2a;
+  --cds-text-secondary: #5f5e5a;
+  --cds-text-muted: #888780;
+  --cds-text-faint: #b4b2a9;
+  --cds-accent: #d85a30;
+  --cds-accent-hover: #993c1d;
+  --cds-accent-tint: #faece7;
+  --cds-accent-text: #712b13;
+  --cds-accent-soft: rgba(216, 90, 48, .1);
+  --cds-accent-ring: rgba(216, 90, 48, .18);
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-feature-settings: "cv02","cv03","cv04","cv11";
   -webkit-font-smoothing: antialiased;
-  background: #f7f7f8;
-  color: #111827;
+  background: var(--cds-bg);
+  color: var(--cds-text-primary);
 }
 
 /* Scrollbar — light surfaces */

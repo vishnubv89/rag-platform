@@ -52,6 +52,61 @@ ORDER BY f.rrf_score DESC
 LIMIT $3
 """
 
+_HYBRID_SQL_ACL = """
+WITH bm25 AS (
+    SELECT
+        c.id,
+        c.doc_id,
+        c.text,
+        ROW_NUMBER() OVER (
+            ORDER BY ts_rank(c.search_vec, plainto_tsquery('english', $1)) DESC
+        ) AS rank
+    FROM chunks c
+    WHERE c.search_vec @@ plainto_tsquery('english', $1)
+    LIMIT 20
+),
+semantic AS (
+    SELECT
+        c.id,
+        c.doc_id,
+        c.text,
+        ROW_NUMBER() OVER (ORDER BY c.embedding <=> $2::vector) AS rank
+    FROM chunks c
+    ORDER BY c.embedding <=> $2::vector
+    LIMIT 20
+),
+fused AS (
+    SELECT
+        COALESCE(b.id,     s.id)     AS chunk_id,
+        COALESCE(b.doc_id, s.doc_id) AS doc_id,
+        COALESCE(b.text,   s.text)   AS text,
+        1.0 / (60 + COALESCE(b.rank, 999)) +
+        1.0 / (60 + COALESCE(s.rank, 999)) AS rrf_score
+    FROM bm25 b
+    FULL OUTER JOIN semantic s ON b.id = s.id
+)
+SELECT
+    f.chunk_id,
+    f.doc_id,
+    f.text,
+    f.rrf_score,
+    d.title     AS doc_title,
+    d.source    AS doc_source,
+    d.external_id
+FROM fused f
+JOIN documents d ON d.id = f.doc_id
+WHERE ($4::bigint IS NULL OR d.org_id = $4)
+  AND (
+      d.is_restricted = FALSE
+      OR EXISTS (
+          SELECT 1 FROM doc_permissions dp
+          WHERE dp.doc_id = d.id AND dp.user_id = $5
+      )
+  )
+ORDER BY f.rrf_score DESC
+LIMIT $3
+"""
+
 _HYBRID_SQL_ABAC = """
 WITH bm25 AS (
     SELECT
@@ -116,6 +171,7 @@ async def hybrid_search(
     top_k: int | None = None,
     org_id: int | None = None,
     user_id: str | None = None,
+    acl_user_id: int | None = None,
 ) -> list[dict]:
     """BM25 + semantic search fused via Reciprocal Rank Fusion."""
     k = top_k or settings.retrieval_top_k
@@ -125,6 +181,8 @@ async def hybrid_search(
     async with pool.acquire() as conn:
         if user_id:
             rows = await conn.fetch(_HYBRID_SQL_ABAC, query, query_embedding, k, org_id, user_id)
+        elif acl_user_id is not None:
+            rows = await conn.fetch(_HYBRID_SQL_ACL, query, query_embedding, k, org_id, acl_user_id)
         else:
             rows = await conn.fetch(_HYBRID_SQL, query, query_embedding, k, org_id)
 

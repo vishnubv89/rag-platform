@@ -407,6 +407,60 @@ async def get_doc_topics(doc_id: int, refresh: bool = Query(False)):
     return {"doc_id": doc_id, "title": doc["title"], "topics": topics}
 
 
+@router.patch("/docs/{doc_id}/restrict", status_code=200)
+async def set_doc_restricted(doc_id: int, body: dict):
+    """Set or clear the is_restricted flag on a document."""
+    is_restricted = bool(body.get("is_restricted", False))
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        updated = await conn.execute(
+            "UPDATE documents SET is_restricted=$1 WHERE id=$2", is_restricted, doc_id
+        )
+        if updated == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="Document not found")
+    return {"doc_id": doc_id, "is_restricted": is_restricted}
+
+
+@router.get("/docs/{doc_id}/permissions")
+async def get_doc_permissions(doc_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT dp.user_id, u.email, u.name
+            FROM doc_permissions dp
+            JOIN users u ON u.id = dp.user_id
+            WHERE dp.doc_id = $1
+            ORDER BY u.email
+            """,
+            doc_id,
+        )
+    return [dict(r) for r in rows]
+
+
+@router.post("/docs/{doc_id}/permissions", status_code=201)
+async def grant_doc_permission(doc_id: int, body: dict):
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=422, detail="user_id required")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO doc_permissions (doc_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+            doc_id, int(user_id),
+        )
+    return {"doc_id": doc_id, "user_id": user_id}
+
+
+@router.delete("/docs/{doc_id}/permissions/{user_id}", status_code=204)
+async def revoke_doc_permission(doc_id: int, user_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM doc_permissions WHERE doc_id=$1 AND user_id=$2", doc_id, user_id
+        )
+
+
 @router.delete("/docs/{doc_id}", status_code=204)
 async def delete_doc(doc_id: int, org_id: int | None = Query(None)):
     pool = await get_pool()
@@ -682,6 +736,40 @@ async def topic_graph(
         "nodes": [dict(r) for r in node_rows],
         "edges": [dict(r) for r in edge_rows],
     }
+
+
+@router.get("/analytics/content-gaps")
+async def analytics_content_gaps(
+    org_id: int | None = None,
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(20, ge=1, le=100),
+):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        oid = await _resolve_org(org_id, conn)
+        rows = await conn.fetch(
+            """
+            SELECT user_message,
+                   COUNT(*)::INT                 AS frequency,
+                   MAX(created_at)               AS last_seen
+            FROM   chat_logs
+            WHERE  org_id = $1
+              AND  answer_type = 'clarify'
+              AND  created_at >= now() - ($2 || ' days')::INTERVAL
+            GROUP  BY user_message
+            ORDER  BY frequency DESC
+            LIMIT  $3
+            """,
+            oid, str(days), limit,
+        )
+    return [
+        {
+            "query": r["user_message"],
+            "frequency": r["frequency"],
+            "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None,
+        }
+        for r in rows
+    ]
 
 
 # ─────────────────────────────────────────────
@@ -1149,3 +1237,82 @@ async def delete_sso_role(org_id: int, email: str):
         )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="SSO role override not found")
+
+
+# ─────────────────────────────────────────────
+# Chatbots (per-org embed widgets with custom system instructions)
+# ─────────────────────────────────────────────
+
+class ChatbotCreate(BaseModel):
+    name: str
+    description: str = ""
+    system_instruction: str = ""
+    welcome_message: str = ""
+    accent_color: str = "#D85A30"
+    position: str = "bottom-right"
+
+
+class ChatbotPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    system_instruction: str | None = None
+    welcome_message: str | None = None
+    is_active: bool | None = None
+    accent_color: str | None = None
+    position: str | None = None
+
+
+@router.get("/orgs/{org_id}/chatbots")
+async def list_chatbots(org_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, name, description, system_instruction, welcome_message,
+                      accent_color, position, is_active, created_at, last_used
+               FROM chatbots WHERE org_id=$1 ORDER BY id""",
+            org_id,
+        )
+    return [dict(r) for r in rows]
+
+
+@router.post("/orgs/{org_id}/chatbots", status_code=201)
+async def create_chatbot(org_id: int, body: ChatbotCreate):
+    raw = "cb_" + secrets.token_urlsafe(32)
+    key_hash = _sha256(raw)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """INSERT INTO chatbots
+                   (org_id, name, description, system_instruction, welcome_message,
+                    accent_color, position, key_hash)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+               RETURNING id, name""",
+            org_id, body.name, body.description, body.system_instruction,
+            body.welcome_message, body.accent_color, body.position, key_hash,
+        )
+    return {**dict(row), "key": raw, "note": "This is the only time the embed token is shown."}
+
+
+@router.patch("/orgs/{org_id}/chatbots/{chatbot_id}")
+async def patch_chatbot(org_id: int, chatbot_id: int, body: ChatbotPatch):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    set_clause = ", ".join(f"{k}=${i+2}" for i, k in enumerate(updates))
+    values = list(updates.values())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE chatbots SET {set_clause} WHERE id=$1 AND org_id={org_id}",
+            chatbot_id, *values,
+        )
+    return {"id": chatbot_id, **updates}
+
+
+@router.delete("/orgs/{org_id}/chatbots/{chatbot_id}", status_code=204)
+async def delete_chatbot(org_id: int, chatbot_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM chatbots WHERE id=$1 AND org_id=$2", chatbot_id, org_id
+        )

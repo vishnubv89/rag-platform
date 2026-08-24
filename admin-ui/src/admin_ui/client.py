@@ -37,7 +37,11 @@ def get_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(
             base_url=settings.backend_url,
             headers={"X-Admin-Key": settings.admin_secret_key},
-            timeout=httpx.Timeout(10.0, read=300.0),
+            # Document ingestion embeds chunks one at a time with a deliberate
+            # inter-call delay to respect free-tier embedding rate limits, and
+            # can retry with exponential backoff (up to ~7 min) on a 429 — a
+            # short read timeout here just turns "slow" into "crashed".
+            timeout=httpx.Timeout(10.0, read=900.0),
         )
     return _client
 
@@ -117,6 +121,27 @@ async def revoke_key(org_id: int, key_id: int) -> None:
     await _delete(f"/admin/orgs/{org_id}/keys/{key_id}")
 
 
+# ── Chatbots ──────────────────────────────────────────────────────────────────
+
+async def list_chatbots(org_id: int) -> list:
+    return await _get(f"/admin/orgs/{org_id}/chatbots")
+
+async def create_chatbot(org_id: int, name: str, description: str,
+                         system_instruction: str, welcome_message: str,
+                         accent_color: str = "#D85A30", position: str = "bottom-right") -> dict:
+    return await _post(f"/admin/orgs/{org_id}/chatbots", json={
+        "name": name, "description": description,
+        "system_instruction": system_instruction, "welcome_message": welcome_message,
+        "accent_color": accent_color, "position": position,
+    })
+
+async def patch_chatbot(org_id: int, chatbot_id: int, **fields) -> dict:
+    return await _patch(f"/admin/orgs/{org_id}/chatbots/{chatbot_id}", json=fields)
+
+async def delete_chatbot(org_id: int, chatbot_id: int) -> None:
+    await _delete(f"/admin/orgs/{org_id}/chatbots/{chatbot_id}")
+
+
 # ── SSO Roles ─────────────────────────────────────────────────────────────────
 
 async def list_sso_roles(org_id: int) -> list:
@@ -142,6 +167,23 @@ async def get_doc_topics(doc_id: int, refresh: bool = False) -> dict:
 
 async def delete_doc(doc_id: int, org_id: int | None = None) -> None:
     await _delete(f"/admin/docs/{doc_id}", org_id=org_id)
+
+async def get_doc_permissions(doc_id: int) -> list:
+    return await _get(f"/admin/docs/{doc_id}/permissions")
+
+async def set_doc_restricted(doc_id: int, is_restricted: bool) -> dict:
+    r = await get_client().patch(
+        f"/admin/docs/{doc_id}/restrict",
+        json={"is_restricted": is_restricted},
+    )
+    _raise(r)
+    return r.json()
+
+async def grant_doc_permission(doc_id: int, user_id: int) -> dict:
+    return await _post(f"/admin/docs/{doc_id}/permissions", json={"user_id": user_id})
+
+async def revoke_doc_permission(doc_id: int, user_id: int) -> None:
+    await _delete(f"/admin/docs/{doc_id}/permissions/{user_id}")
 
 async def ingest_file_upload(filename: str, content: bytes, org_id: int | None) -> dict:
     params = {"org_id": org_id} if org_id else {}
@@ -180,6 +222,9 @@ async def list_logs(org_id: int | None = None, page: int = 1, from_dt: str | Non
 
 async def token_usage(org_id: int | None = None, days: int = 30) -> list:
     return await _get("/admin/analytics/token-usage", org_id=org_id, days=days)
+
+async def content_gaps(org_id: int | None = None, days: int = 30, limit: int = 20) -> list:
+    return await _get("/admin/analytics/content-gaps", org_id=org_id, days=days, limit=limit)
 
 
 # ── Connectors ────────────────────────────────────────────────────────────────

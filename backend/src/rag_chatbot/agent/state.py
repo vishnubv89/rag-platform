@@ -58,3 +58,15 @@ class AgentState(TypedDict):
     # Annotated[int, operator.add] merges partial dicts from each node.
     prompt_tokens: Annotated[int, operator.add]
     completion_tokens: Annotated[int, operator.add]
+
+    # Which terminal node handled this request — used for content gap analytics.
+    answer_type: str
+
+    # Integer user id from the local users table.
+    # When set and feature_doc_acls is enabled, retrieval filters out restricted
+    # documents that the user has no explicit grant for.
+    local_user_id: int | None
+
+    # Custom system instruction injected by a chatbot embed token.
+    # When set, generator_node uses this instead of the hardcoded _GENERATOR_SYSTEM.
+    system_instruction: str | None

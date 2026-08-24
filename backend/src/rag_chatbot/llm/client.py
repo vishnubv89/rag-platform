@@ -26,7 +26,18 @@ _openai_clients: dict[tuple[str, str], _openai.OpenAI] = {}
 
 def _gemini(api_key: str) -> genai.Client:
     if api_key not in _gemini_clients:
-        _gemini_clients[api_key] = genai.Client(api_key=api_key)
+        # The SDK retries transient/rate-limit errors internally by default,
+        # which under sustained free-tier quota pressure can add 20-50s of
+        # silent latency to a single chat call. We have no retry logic of
+        # our own here, so a single fast attempt lets a rate-limited call
+        # fail immediately with a clear error instead of hanging.
+        _gemini_clients[api_key] = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                timeout=15000,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
+        )
     return _gemini_clients[api_key]
 
 

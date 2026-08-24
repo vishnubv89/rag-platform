@@ -83,26 +83,26 @@ function Portal() {
       {/* Sidebar — desktop only */}
       {!isMobile && <Sidebar activeApp={activeApp} onAppChange={(a) => setActiveApp(a as App)} />}
 
-      <div className="flex flex-col flex-1 min-w-0" style={{ background: "#f7f7f8" }}>
+      <div className="flex flex-col flex-1 min-w-0" style={{ background: "var(--cds-bg)" }}>
         {/* Top bar */}
         <header
           className="flex items-center justify-between px-4 flex-shrink-0"
-          style={{ height: 48, background: "#ffffff", borderBottom: "1px solid #e8e8ea" }}
+          style={{ height: 48, background: "var(--cds-surface)", borderBottom: "1px solid var(--cds-border)" }}
         >
           <div className="flex items-center gap-2">
             {isMobile && (
-              <div className="w-6 h-6 rounded-lg flex items-center justify-center mr-1" style={{ background: "#2563eb" }}>
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center mr-1" style={{ background: "var(--cds-accent)" }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                 </svg>
               </div>
             )}
-            <span className="font-semibold text-gray-800 text-sm tracking-tight">
+            <span className="font-semibold text-sm tracking-tight" style={{ color: "var(--cds-text-primary)" }}>
               {APP_LABELS[activeApp]}
             </span>
             <span
               className="text-xs px-1.5 py-0.5 rounded"
-              style={{ background: "#f3f4f6", color: "#9ca3af", fontSize: ".6rem", letterSpacing: ".06em" }}
+              style={{ background: "var(--cds-surface-tint)", color: "var(--cds-text-muted)", fontSize: ".6rem", letterSpacing: ".06em" }}
             >
               BETA
             </span>
@@ -113,9 +113,9 @@ function Portal() {
               <button
                 onClick={newSession}
                 className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                style={{ background: "#f3f4f6", color: "#374151" }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#e5e7eb")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#f3f4f6")}
+                style={{ background: "var(--cds-surface-tint)", color: "var(--cds-text-secondary)" }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--cds-surface-tint-hover)")}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--cds-surface-tint)")}
               >
                 New chat
               </button>
@@ -125,9 +125,9 @@ function Portal() {
               onClick={logout}
               title={`Sign out (${user?.email})`}
               className="flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
-              style={{ background: "#f3f4f6", color: "#6b7280" }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#fee2e2")}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#f3f4f6")}
+              style={{ background: "var(--cds-surface-tint)", color: "var(--cds-text-secondary)" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#FCEBEB")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--cds-surface-tint)")}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -154,8 +154,8 @@ function Portal() {
           className="fixed bottom-0 left-0 right-0 flex items-center"
           style={{
             height: 56,
-            background: "#ffffff",
-            borderTop: "1px solid #e8e8ea",
+            background: "var(--cds-surface)",
+            borderTop: "1px solid var(--cds-border)",
             zIndex: 50,
           }}
         >
@@ -166,7 +166,7 @@ function Portal() {
                 key={item.id}
                 onClick={() => setActiveApp(item.id)}
                 className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1 transition-colors"
-                style={{ color: active ? "#2563eb" : "#9ca3af" }}
+                style={{ color: active ? "var(--cds-accent)" : "var(--cds-text-muted)" }}
               >
                 {item.icon}
                 <span style={{ fontSize: ".6rem", fontWeight: active ? 600 : 400 }}>{item.label}</span>
@@ -248,8 +248,8 @@ function ZitadelCallback() {
   }, [setAuth]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen" style={{ background: "#f7f7f8" }}>
-      <div className="w-6 h-6 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+    <div className="flex items-center justify-center min-h-screen" style={{ background: "var(--cds-bg)" }}>
+      <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "var(--cds-accent)", borderTopColor: "transparent" }} />
     </div>
   );
 }
@@ -277,8 +277,8 @@ function AuthBootstrap({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen" style={{ background: "#f7f7f8" }}>
-        <div className="w-6 h-6 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+      <div className="flex items-center justify-center min-h-screen" style={{ background: "var(--cds-bg)" }}>
+        <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "var(--cds-accent)", borderTopColor: "transparent" }} />
       </div>
     );
   }

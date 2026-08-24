@@ -130,4 +130,38 @@ new Chart(document.getElementById('usageChart'), {
   }
 });
 </script>
+
+{% if config.get('feature_content_gap') == 'true' %}
+<!-- ── Knowledge Gaps ──────────────────────────────────────────────── -->
+<div class="card stat-card mb-4">
+  <div class="card-header fw-semibold d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-question-circle me-2"></i>Knowledge Gaps <span class="badge bg-warning text-dark ms-1">{{ gaps | length }}</span></span>
+    <span class="text-muted small fw-normal">Queries the KB couldn't answer (last 30 days)</span>
+  </div>
+  {% if gaps %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>User Query</th>
+          <th class="text-center" style="width:100px">Times Asked</th>
+          <th style="width:180px">Last Seen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for gap in gaps %}
+        <tr>
+          <td class="text-break">{{ gap.query }}</td>
+          <td class="text-center"><span class="badge bg-danger">{{ gap.frequency }}</span></td>
+          <td class="text-muted small">{{ gap.last_seen[:19].replace('T',' ') if gap.last_seen else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-muted small">No unanswered queries in the last 30 days.</div>
+  {% endif %}
+</div>
+{% endif %}
 {% endblock %}

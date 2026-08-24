@@ -9,7 +9,7 @@ from admin_ui.config import settings
 from admin_ui.routers import (
     auth_router, dashboard, documents,
     settings as settings_router, orgs,
-    analytics, connectors, knowledge, users, audit,
+    analytics, connectors, knowledge, users, audit, chatbots,
 )
 
 app = FastAPI(title="RAG Admin UI", docs_url=None, redoc_url=None)
@@ -28,6 +28,7 @@ app.include_router(connectors.router)
 app.include_router(knowledge.router)
 app.include_router(users.router)
 app.include_router(audit.router)
+app.include_router(chatbots.router)
 
 # Public paths that bypass auth check
 _PUBLIC = {"/login", "/logout"}
@@ -59,6 +60,15 @@ async def attach_globals(request: Request, call_next):
         request.state.all_orgs = await api.list_orgs()
     except Exception:
         request.state.all_orgs = []
+
+    try:
+        if request.state.active_org_id:
+            cfg_resp = await api.get_config(org_id=request.state.active_org_id)
+            request.state.feature_flags = cfg_resp.get("config", {})
+        else:
+            request.state.feature_flags = {}
+    except Exception:
+        request.state.feature_flags = {}
 
     response = await call_next(request)
 

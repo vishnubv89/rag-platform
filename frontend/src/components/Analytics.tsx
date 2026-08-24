@@ -61,7 +61,7 @@ function BarChart({ data }: { data: { label: string; value: number }[] }) {
               className="h-full rounded-full transition-all"
               style={{
                 width: `${(d.value / max) * 100}%`,
-                background: "linear-gradient(90deg,#6366f1,#818cf8)",
+                background: "linear-gradient(90deg,#D85A30,#F0997B)",
                 minWidth: d.value ? 8 : 0,
               }}
             />
@@ -89,7 +89,7 @@ function DailyChart({ data }: { data: { day: string; chats: number }[] }) {
             className="w-full rounded-t"
             style={{
               height: `${Math.max((d.chats / max) * 64, d.chats ? 4 : 0)}px`,
-              background: "linear-gradient(180deg,#6366f1,#818cf8)",
+              background: "linear-gradient(180deg,#D85A30,#F0997B)",
             }}
           />
           <span className="text-gray-300" style={{ fontSize: 9 }}>
@@ -223,7 +223,7 @@ export function Analytics() {
   const totalLogPages = Math.ceil(totalLogs / 15);
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: "#fafafa" }}>
+    <div className="h-full overflow-y-auto" style={{ background: "var(--cds-bg)" }}>
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
 
         {/* Header */}
@@ -232,7 +232,9 @@ export function Analytics() {
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600 focus:outline-none"
+            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 3px var(--cds-accent-soft)"; }}
+            onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; }}
           >
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>

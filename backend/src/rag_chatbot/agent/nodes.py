@@ -137,11 +137,13 @@ async def intent_node(state: AgentState) -> dict:
     is_chitchat = bool(_CHITCHAT_RE.match(query))
     is_overview = bool(_KB_OVERVIEW_RE.search(query)) and not is_chitchat
 
+    cfg = state.get("llm_config", {})
     action_intent = None
-    for action_name, pattern in _ACTION_PATTERNS:
-        if pattern.search(query):
-            action_intent = action_name
-            break
+    if cfg.get("feature_actions") != "false":
+        for action_name, pattern in _ACTION_PATTERNS:
+            if pattern.search(query):
+                action_intent = action_name
+                break
 
     skip = is_chitchat or is_overview or (action_intent is not None)
     _log.info(
@@ -177,9 +179,14 @@ async def retriever_node(state: AgentState) -> dict:
     org_id = state.get("org_id")
     query = state["query"]
     zitadel_token = state.get("user_zitadel_token")
+    cfg = state.get("llm_config", {})
+
+    acl_uid: int | None = None
+    if cfg.get("feature_doc_acls") == "true":
+        acl_uid = state.get("local_user_id")
 
     # Always run the pgvector search
-    docs = await hybrid_search(query, org_id=org_id)
+    docs = await hybrid_search(query, org_id=org_id, acl_user_id=acl_uid)
 
     # OBO supplement — only when user has a Zitadel token
     if zitadel_token and org_id:
@@ -415,6 +422,7 @@ async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
             "source_chunk_ids": [],
             "sources": [],
             "messages": [{"role": "assistant", "content": answer}],
+            "answer_type": "kb_overview",
         }
 
     doc_list = "\n".join(f"- {r['title']}" for r in rows)
@@ -433,6 +441,7 @@ async def kb_overview_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "kb_overview",
     }
 
 
@@ -449,7 +458,18 @@ _GENERATOR_SYSTEM = (
     "Do not invent, guess, or supplement with facts not present in the context."
 )
 
-_CHITCHAT_SYSTEM = "You are a helpful and friendly assistant."
+_CHITCHAT_SYSTEM = (
+    "You are Knowledge Mesh, an AI assistant grounded in this organization's connected "
+    "knowledge base (uploaded documents and connectors such as ServiceNow, Confluence, "
+    "SharePoint, and Jira). Respond briefly and naturally to greetings and small talk. "
+    "If asked what you can do, describe only this: answering questions using the "
+    "organization's connected knowledge sources, and, where enabled, taking actions like "
+    "creating tickets or sending notifications. "
+    "Never claim to be a general-purpose model, never state or imply a training/knowledge "
+    "cutoff date, and never describe capabilities (e.g. translation, generic web knowledge) "
+    "that are not part of this product. If you are unsure whether a capability exists, say "
+    "you're not sure rather than guessing."
+)
 
 
 def _build_history_block(messages: list[dict]) -> str:
@@ -472,12 +492,13 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
 
     history_block = _build_history_block(messages)
 
+    custom_instruction = (state.get("system_instruction") or "").strip()
     if skip or not docs:
         if history_block:
             prompt = f"Conversation so far:\n{history_block}\n\nUser: {query}"
         else:
             prompt = query
-        system = _CHITCHAT_SYSTEM
+        system = custom_instruction if custom_instruction else _CHITCHAT_SYSTEM
     else:
         context = "\n\n".join(
             f"[Source: {d.get('doc_title') or 'Unknown'} | chunk {d['chunk_id']}]\n{d['text']}"
@@ -490,7 +511,9 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
             )
         else:
             prompt = f"Question: {query}\n\nContext:\n{context}"
-        system = _GENERATOR_SYSTEM
+        # Custom instruction prepended to base system prompt so RAG grounding rules always apply
+        system = (f"{custom_instruction}\n\n{_GENERATOR_SYSTEM}" if custom_instruction
+                  else _GENERATOR_SYSTEM)
 
     answer, pt, ct = await _stream_llm(prompt, system, cfg, config)
 
@@ -511,6 +534,7 @@ async def generator_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "chitchat" if (skip or not docs) else "generator",
     }
 
 
@@ -522,11 +546,15 @@ async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
     query = state["messages"][-1]["content"]
     cfg = state.get("llm_config", {})
     system = (
-        "You are a helpful assistant. The user asked a question that isn't covered "
-        "by the available knowledge base. Politely let them know you don't have that "
-        "information, and ask a short clarifying question to help narrow down what "
-        "they're looking for — perhaps they meant something different, or there's a "
-        "related topic in the knowledge base that would help. Keep it brief and friendly."
+        "You are Knowledge Mesh. The user asked a question that isn't covered by the "
+        "available knowledge base. Politely let them know you don't have that information "
+        "in the knowledge base, and ask a short clarifying question to help narrow down "
+        "what they're looking for — perhaps they meant something different, or there's a "
+        "related topic in the knowledge base that would help. Keep it brief and friendly. "
+        "IMPORTANT: Do NOT answer the question using your own general knowledge, even "
+        "partially, even as a preamble before asking the clarifying question. State only "
+        "that the information isn't in the knowledge base — never supply facts about the "
+        "topic itself from outside the knowledge base."
     )
     answer, pt, ct = await _stream_llm(f"User asked: {query}", system, cfg, config)
     return {
@@ -536,6 +564,7 @@ async def clarify_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "clarify",
     }
 
 
@@ -606,4 +635,5 @@ async def action_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [{"role": "assistant", "content": answer}],
         "prompt_tokens": pt,
         "completion_tokens": ct,
+        "answer_type": "action",
     }

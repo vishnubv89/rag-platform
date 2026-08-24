@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "architecture-animation",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "7654"],
+      "port": 7654
+    },
+    {
+      "name": "admin-ui",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "7656"],
+      "port": 7656
+    },
+    {
+      "name": "post-card",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "7655"],
+      "port": 7655
+    },
+    {
+      "name": "frontend-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--port", "5174"],
+      "port": 5174
+    }
+  ]
+}

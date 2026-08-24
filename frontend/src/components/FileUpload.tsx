@@ -28,28 +28,30 @@ export function FileUpload() {
   });
 
   return (
-    <div className="p-4 border-t border-gray-100 bg-gray-50">
+    <div className="p-4" style={{ borderTop: "1px solid var(--cds-border)", background: "var(--cds-surface-tint)" }}>
       <div
         {...getRootProps()}
-        className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors text-sm ${
-          isDragActive ? "border-indigo-400 bg-indigo-50" : "border-gray-200 hover:border-indigo-300"
-        }`}
+        className="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors text-sm"
+        style={{
+          borderColor: isDragActive ? "#F0997B" : "var(--cds-border)",
+          background: isDragActive ? "var(--cds-accent-tint)" : "transparent",
+        }}
       >
         <input {...getInputProps()} />
-        {status === "uploading" && <span className="text-indigo-500">Uploading…</span>}
+        {status === "uploading" && <span style={{ color: "var(--cds-accent)" }}>Uploading…</span>}
         {status === "done" && <span className="text-green-600">{result}</span>}
         {status === "error" && <span className="text-red-500">{result}</span>}
         {status === "idle" && (
           <div className="flex flex-col items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--cds-text-muted)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
             {isDragActive ? (
-              <span className="text-indigo-500 text-sm font-medium">Drop to ingest</span>
+              <span className="text-sm font-medium" style={{ color: "var(--cds-accent)" }}>Drop to ingest</span>
             ) : (
               <>
-                <span className="text-gray-400 text-xs">PDF, TXT or MD · drag here or</span>
-                <span className="text-xs font-medium px-3 py-1 rounded-lg" style={{ background: "#eff6ff", color: "#2563eb" }}>
+                <span className="text-xs" style={{ color: "var(--cds-text-muted)" }}>PDF, TXT or MD · drag here or</span>
+                <span className="text-xs font-medium px-3 py-1 rounded-lg" style={{ background: "var(--cds-accent-tint)", color: "var(--cds-accent-text)" }}>
                   Browse files
                 </span>
               </>
