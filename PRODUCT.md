@@ -515,7 +515,7 @@ The platform supports three LLM providers via a unified `llm/client.py`. The act
 
 | Provider | `LLM_PROVIDER` value | Models | Notes |
 |---|---|---|---|
-| **Google Gemini** | `gemini` (default) | `gemini-2.0-flash`, `gemini-1.5-pro`, … | Embeddings always use Gemini regardless of LLM provider |
+| **Google Gemini** | `gemini` (default) | `gemini-3.5-flash-lite`, `gemini-2.5-pro`, … | Embeddings always use Gemini regardless of LLM provider |
 | **Anthropic Claude** | `anthropic` | `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307`, … | Requires `ANTHROPIC_API_KEY` |
 | **NVIDIA NIM / OpenAI-compatible** | `nvidia` | Any model on the endpoint | Works for Groq, Ollama, Together AI, local vLLM — set `nvidia_base_url` |
 
@@ -545,7 +545,7 @@ In the admin panel (Settings page), each org can override:
 | `llm_provider` | `anthropic` |
 | `anthropic_model` | `claude-3-5-sonnet-20241022` |
 | `anthropic_api_key` | `sk-ant-...` |
-| `llm_model` | `gemini-2.0-flash` (Gemini override) |
+| `llm_model` | `gemini-3.5-flash-lite` (Gemini override) |
 | `nvidia_model` | `meta/llama-3.1-70b-instruct` |
 | `nvidia_base_url` | `http://localhost:8080/v1` (local Ollama) |
 | `nvidia_api_key` | `nvapi-...` |
@@ -1139,7 +1139,7 @@ The backend chart includes an **HPA** (min 2, max 6 replicas at 70% CPU).
 | `ADMIN_SECRET_KEY` | No | `change-me` | Bootstrap admin key |
 | `JWT_SECRET` | No | `change-me-jwt-secret` | Signs platform JWTs |
 | `LLM_PROVIDER` | No | `gemini` | `gemini` / `anthropic` / `nvidia` |
-| `LLM_MODEL` | No | `gemini-2.0-flash` | Gemini model |
+| `LLM_MODEL` | No | `gemini-3.5-flash-lite` | Gemini model |
 | `ANTHROPIC_MODEL` | No | `claude-3-5-sonnet-20241022` | Anthropic model |
 | `NVIDIA_MODEL` | No | — | NVIDIA NIM model name |
 | `NVIDIA_BASE_URL` | No | `https://integrate.api.nvidia.com/v1` | NIM / OpenAI-compat base URL |
@@ -1184,7 +1184,7 @@ The backend chart includes an **HPA** (min 2, max 6 replicas at 70% CPU).
 | Key | Default | Description |
 |---|---|---|
 | `llm_provider` | `gemini` | Provider for this org |
-| `llm_model` | `gemini-2.0-flash` | Gemini model |
+| `llm_model` | `gemini-3.5-flash-lite` | Gemini model |
 | `anthropic_model` | `claude-3-5-sonnet-20241022` | Anthropic model |
 | `anthropic_api_key` | — | Org-specific Anthropic key |
 | `nvidia_model` | — | NIM model |

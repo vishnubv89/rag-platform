@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -22,6 +22,7 @@ import {
 
 function fmt(n: number | undefined, unit = "") {
   if (n == null) return "—";
+  if (unit === "ms" && n >= 1000) return `${(n / 1000).toFixed(1)}s`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M${unit}`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k${unit}`;
   return `${n}${unit}`;
@@ -105,14 +106,14 @@ function DailyChart({ data }: { data: { day: string; chats: number }[] }) {
 
 const COLORS = ["#6366f1","#8b5cf6","#06b6d4","#10b981","#f59e0b","#ef4444","#ec4899","#14b8a6"];
 
-function TopicGraph({ orgId, days }: { orgId: number | null; days: number }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["topic-graph", orgId, days],
-    queryFn: () => getTopicGraph(orgId, days),
-    staleTime: 60_000,
-  });
+type TopicGraphData = Awaited<ReturnType<typeof getTopicGraph>>;
 
-  const buildFlow = useCallback(() => {
+// Mounted only once data exists: useNodesState/useEdgesState read their
+// argument on first render only, so mounting before the query resolved left
+// the graph empty until the next visit (when the cache made data available
+// at mount time).
+function TopicGraphCanvas({ data }: { data: TopicGraphData }) {
+  const { nodes: initNodes, edges: initEdges } = useMemo(() => {
     if (!data?.nodes.length) return { nodes: [], edges: [] };
 
     const maxCit = Math.max(...data.nodes.map((n) => n.citations), 1);
@@ -151,18 +152,8 @@ function TopicGraph({ orgId, days }: { orgId: number | null; days: number }) {
     return { nodes: flowNodes, edges: flowEdges };
   }, [data]);
 
-  const { nodes: initNodes, edges: initEdges } = buildFlow();
   const [nodes, , onNodesChange] = useNodesState(initNodes);
   const [edges, , onEdgesChange] = useEdgesState(initEdges);
-
-  if (isLoading) return <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading…</div>;
-  if (isError) return <div className="flex items-center justify-center h-full text-sm text-red-400">Failed to load graph</div>;
-  if (!data?.nodes.length) return (
-    <div className="flex flex-col items-center justify-center h-full gap-2">
-      <p className="text-sm text-gray-400">No data yet</p>
-      <p className="text-xs text-gray-300">Topic connections appear once users start chatting</p>
-    </div>
-  );
 
   return (
     <ReactFlow
@@ -178,6 +169,25 @@ function TopicGraph({ orgId, days }: { orgId: number | null; days: number }) {
       <Controls showInteractive={false} />
     </ReactFlow>
   );
+}
+
+function TopicGraph({ orgId, days }: { orgId: number | null; days: number }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["topic-graph", orgId, days],
+    queryFn: () => getTopicGraph(orgId, days),
+    staleTime: 60_000,
+  });
+
+  if (isLoading) return <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading…</div>;
+  if (isError) return <div className="flex items-center justify-center h-full text-sm text-red-400">Failed to load graph</div>;
+  if (!data?.nodes.length) return (
+    <div className="flex flex-col items-center justify-center h-full gap-2">
+      <p className="text-sm text-gray-400">No data yet</p>
+      <p className="text-xs text-gray-300">Topic connections appear once users start chatting</p>
+    </div>
+  );
+
+  return <TopicGraphCanvas data={data} />;
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────

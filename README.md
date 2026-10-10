@@ -182,7 +182,7 @@ Switch LLM providers per-org via the admin settings panel — no restart needed:
 
 | Provider | `LLM_PROVIDER` | Example models |
 |---|---|---|
-| Google Gemini (default) | `gemini` | `gemini-2.0-flash`, `gemini-1.5-pro` |
+| Google Gemini (default) | `gemini` | `gemini-3.5-flash-lite`, `gemini-2.5-pro` |
 | Anthropic Claude | `anthropic` | `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307` |
 | NVIDIA NIM / OpenAI-compat | `nvidia` | Any model — also works for Groq, Ollama, Together AI |
 
@@ -213,7 +213,7 @@ Every request generates a full trace tree:
 ```
 rag-chat [chain]                user=alice  session=abc  org=acme
   └── retrieval.hybrid_search [retriever]   5 results, titles=[…]
-  └── llm.generate [generation]             model=gemini-2.0-flash  in=312 out=89
+  └── llm.generate [generation]             model=gemini-3.5-flash-lite  in=312 out=89
 ```
 
 Access the Langfuse UI at **http://localhost:3000** (`admin@rag.local` / `Admin1234!`).
@@ -333,7 +333,7 @@ rag-platform/
 | Key | Default | Description |
 |---|---|---|
 | `llm_provider` | `gemini` | Override LLM provider for this org |
-| `llm_model` | `gemini-2.0-flash` | Gemini model |
+| `llm_model` | `gemini-3.5-flash-lite` | Gemini model |
 | `anthropic_model` | `claude-3-5-sonnet-20241022` | Anthropic model |
 | `anthropic_api_key` | — | Org-specific Anthropic key |
 | `nvidia_model` | — | NVIDIA NIM model |
