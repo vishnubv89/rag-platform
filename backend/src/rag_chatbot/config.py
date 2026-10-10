@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
 
     # Gemini
-    llm_model: str = "gemini-2.0-flash"
+    llm_model: str = "gemini-3.5-flash-lite"
     embedding_model: str = "models/gemini-embedding-2"
     embedding_dim: int = 768
 

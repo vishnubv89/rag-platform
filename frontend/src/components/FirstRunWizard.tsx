@@ -27,7 +27,7 @@ const PROVIDER_KEY_FIELD: Partial<Record<Provider, string>> = {
 };
 
 const DEFAULT_MODELS: Record<Provider, string> = {
-  gemini:    "gemini-2.0-flash",
+  gemini:    "gemini-3.5-flash-lite",
   anthropic: "claude-sonnet-4-6",
   nvidia:    "meta/llama-3.2-3b-instruct",
 };
@@ -178,7 +178,7 @@ export function FirstRunWizard({ orgId, onDone }: Props) {
                   onChange={(e) => setModel(e.target.value)}
                 />
                 <p className="text-xs mt-1" style={{ color: "var(--cds-text-muted)" }}>
-                  {provider === "gemini" && "e.g. gemini-2.0-flash, gemini-1.5-pro, gemini-2.5-pro"}
+                  {provider === "gemini" && "e.g. gemini-3.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro"}
                   {provider === "anthropic" && "e.g. claude-sonnet-4-6, claude-opus-4-7, claude-haiku-4-5-20251001"}
                   {provider === "nvidia" && "e.g. meta/llama-3.2-3b-instruct, meta/llama-3.1-405b-instruct"}
                 </p>
