@@ -585,7 +585,9 @@ async def analytics_summary(
             SELECT COUNT(*)                             AS total_chats,
                    COALESCE(AVG(latency_ms),0)::INT    AS avg_latency_ms,
                    COUNT(*) FILTER (WHERE feedback = 1)  AS thumbs_up,
-                   COUNT(*) FILTER (WHERE feedback = -1) AS thumbs_down
+                   COUNT(*) FILTER (WHERE feedback = -1) AS thumbs_down,
+                   COALESCE(SUM(prompt_tokens), 0)::BIGINT     AS total_prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0)::BIGINT AS total_completion_tokens
             FROM chat_logs WHERE {where}
             """,
             *params,
@@ -618,7 +620,7 @@ async def analytics_logs(
             f"""
             SELECT id, session_id, LEFT(user_message,100) AS user_message,
                    LEFT(assistant_response,100) AS assistant_response,
-                   loop_count, latency_ms, created_at
+                   loop_count, latency_ms, prompt_tokens, completion_tokens, created_at
             FROM   chat_logs WHERE {where}
             ORDER  BY created_at DESC
             LIMIT  ${len(params)-1} OFFSET ${len(params)}
