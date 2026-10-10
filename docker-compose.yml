@@ -155,7 +155,10 @@ services:
   # ---------------------------------------------------------------------------
   zitadel:
     restart: unless-stopped
-    image: ghcr.io/zitadel/zitadel:v2.54.3
+    # Pinned to the last v3 release on purpose. v4 routes every login to Login V2
+    # (/ui/v2/login), a separate service this stack does not run, so SSO would 404.
+    # Move to v4 only after adding the Login V2 container + its service user.
+    image: ghcr.io/zitadel/zitadel:v3.4.15
     command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
     container_name: rag_zitadel
     environment:
