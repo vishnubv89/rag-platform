@@ -18,4 +18,4 @@ UPDATE app_config
 UPDATE app_config
    SET value = 'models/gemini-embedding-2', updated_at = now()
  WHERE key = 'embedding_model'
-   AND value IN ('text-embedding-004', 'models/text-embedding-004');
+   AND value IN ('text-embedding-004', 'models/text-embedding-004', 'models/gemini-embedding-001');
